@@ -3,7 +3,1668 @@
 
 #include <string.h>
 #include <stdint.h>
+
+#ifdef USE_SHA1_OPENSSL
 #include <openssl/sha.h>
+#endif
+
+#ifdef USE_SHA1_SSE2
+#include <emmintrin.h>
+#endif
+
+
+// constants and initial values defined in SHA-1
+#define K0 0x5A827999
+#define K1 0x6ED9EBA1
+#define K2 0x8F1BBCDC
+#define K3 0xCA62C1D6
+
+#define H0 0x67452301
+#define H1 0xEFCDAB89
+#define H2 0x98BADCFE
+#define H3 0x10325476
+#define H4 0xC3D2E1F0
+
+#define ROL32(_val32, _nBits) (((_val32)<<(_nBits))|((_val32)>>(32-(_nBits))))
+
+// W[t] = ROL32(W[t-3] ^ W[t-8] ^ W[t-14] ^ W[t-16], 1);
+#define SHABLK(t) (W[t&15] = ROL32(W[(t+13)&15] ^ W[(t+8)&15] ^ W[(t+2)&15] ^ W[t&15], 1))
+
+#define _RS0(v,w,x,y,z,i) { z += ((w&(x^y))^y) + i + K0 + ROL32(v,5);  w=ROL32(w,30); }
+#define _RS00(v,w,x,y,z)  { z += ((w&(x^y))^y) + K0 + ROL32(v,5);  w=ROL32(w,30); }
+#define _RS1(v,w,x,y,z,i) { z += (w^x^y) + i + K1 + ROL32(v,5);  w=ROL32(w,30); }
+
+#define _R0(v,w,x,y,z,t) { z += ((w&(x^y))^y) + SHABLK(t) + K0 + ROL32(v,5);  w=ROL32(w,30); }
+#define _R1(v,w,x,y,z,t) { z += (w^x^y) + SHABLK(t) + K1 + ROL32(v,5);  w=ROL32(w,30); }
+#define _R2(v,w,x,y,z,t) { z += (((w|x)&y)|(w&x)) + SHABLK(t) + K2 + ROL32(v,5);  w=ROL32(w,30); }
+#define _R3(v,w,x,y,z,t) { z += (w^x^y) + SHABLK(t) + K3 + ROL32(v,5);  w=ROL32(w,30); }
+
+
+void sha1hash12byte(const char *input, uint32_t *m_state)
+{
+	uint32_t W[16];
+	uint32_t a, b, c, d, e;
+	int i;
+
+	// SHA-1 initialization constants
+	m_state[0] = H0;
+	m_state[1] = H1;
+	m_state[2] = H2;
+	m_state[3] = H3;
+	m_state[4] = H4;
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	// input[0] to input[11], 12byte, 96bits
+	for (i = 0; i < 3; i++){
+		W[i] = input[4*i+0] << 24 | input[4*i+1] << 16 | input[4*i+2] << 8 | input[4*i+3];
+	}
+
+	W[3] = 0x80000000;		// padding
+
+/*
+	for (int i = 4; i < 15; i++){
+		W[i] = 0;
+	}
+*/
+
+	W[15] = 12 * 8;		// bits of Message Block (12 bytes * 8 bits)
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS00(b, c, d, e, a);		// W[4] == 0
+	_RS00(a, b, c, d, e);		// W[5] == 0
+	_RS00(e, a, b, c, d);		// W[6] == 0
+	_RS00(d, e, a, b, c);		// W[7] == 0
+	_RS00(c, d, e, a, b);		// W[8] == 0
+	_RS00(b, c, d, e, a);		// W[9] == 0
+	_RS00(a, b, c, d, e);		// W[10] == 0
+	_RS00(e, a, b, c, d);		// W[11] == 0
+	_RS00(d, e, a, b, c);		// W[12] == 0
+	_RS00(c, d, e, a, b);		// W[13] == 0
+	_RS00(b, c, d, e, a);		// W[14] == 0
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	W[0] = ROL32(W[2] ^ W[0], 1);		// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
+	_RS0(e, a, b, c, d, W[0]);
+
+	W[1] = ROL32(W[3] ^ W[1], 1);		// (17, W[14]==0, W[9]==0, W[3], W[1])
+	_RS0(d, e, a, b, c, W[1]);
+
+	W[2] = ROL32(W[15] ^ W[2], 1);		// (18, W[15], W[10]==0, W[4]==0, W[2])
+	_RS0(c, d, e, a, b, W[2]);
+
+	W[3] = ROL32(W[0] ^ W[3], 1);		// (19, W[0], W[11]==0, W[5]==0, W[3])
+	_RS0(b, c, d, e, a, W[3]);
+
+	// round 20 to 31
+	W[4] = ROL32(W[1], 1);				// (20, W[1], W[12]==0, W[6]==0, W[4]==0)
+	_RS1(a, b, c, d, e, W[4]);
+
+	W[5] = ROL32(W[2], 1);				// (21, W[2], W[13]==0, W[7]==0, W[5]==0)
+	_RS1(e, a, b, c, d, W[5]);
+
+	W[6] = ROL32(W[3], 1);				// (22, W[3], W[14]==0, W[8]==0, W[6]==0)
+	_RS1(d, e, a, b, c, W[6]);
+
+	W[7] = ROL32(W[4] ^ W[15], 1);		// (23, W[4], W[15], W[9]==0, W[7]==0)
+	_RS1(c, d, e, a, b, W[7]);
+
+	W[8] = ROL32(W[5] ^ W[0], 1);		// (24, W[5], W[0], W[10]==0, W[8]==0)
+	_RS1(b, c, d, e, a, W[8]);
+
+	W[9] = ROL32(W[6] ^ W[1], 1);		// (25, W[6], W[1], W[11]==0, W[9]==0)
+	_RS1(a, b, c, d, e, W[9]);
+
+	W[10] = ROL32(W[7] ^ W[2], 1);		// (26, W[7], W[2], W[12]==0, W[10]==0)
+	_RS1(e, a, b, c, d, W[10]);
+
+	W[11] = ROL32(W[8] ^ W[3], 1);		// (27, W[8], W[3], W[13]==0, W[11]==0)
+	_RS1(d, e, a, b, c, W[11]);
+
+	W[12] = ROL32(W[9] ^ W[4], 1);		// (28, W[9], W[4], W[14]==0, W[12]==0)
+	_RS1(c, d, e, a, b, W[12]);
+
+	W[13] = ROL32(W[10] ^ W[5] ^ W[15], 1);		// (29, W[10], W[5], W[15], W[13]==0)
+	_RS1(b, c, d, e, a, W[13]);
+
+	W[14] = ROL32(W[11] ^ W[6] ^ W[0], 1);		// (30, W[11], W[6], W[0], W[14]==0)
+	_RS1(a, b, c, d, e, W[14]);
+
+	W[15] = ROL32(W[12] ^ W[7] ^ W[1] ^ W[15], 1);		// (31, W[12], W[7], W[1], W[15])
+	_RS1(e, a, b, c, d, W[15]);
+
+	// round 32 to 39
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] += a;
+	m_state[1] += b;
+	m_state[2] += c;
+	m_state[3] += d;
+	m_state[4] += e;
+
+	m_state[0] = swab32(m_state[0]);
+	m_state[1] = swab32(m_state[1]);
+	m_state[2] = swab32(m_state[2]);
+	m_state[3] = swab32(m_state[3]);
+	m_state[4] = swab32(m_state[4]);
+}
+
+
+void sha1hash80byte(const uint8_t *input, uint32_t *m_state)
+{
+	uint32_t W[16];
+	uint32_t a, b, c, d, e;
+	int i;
+
+	// SHA-1 initialization constants
+	m_state[0] = H0;
+	m_state[1] = H1;
+	m_state[2] = H2;
+	m_state[3] = H3;
+	m_state[4] = H4;
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	// input[0] to input[63], 64bytes, 512bits
+	for (i = 0; i < 16; i++){
+		W[i] = input[4*i+0] << 24 | input[4*i+1] << 16 | input[4*i+2] << 8 | input[4*i+3];
+	}
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS0(b, c, d, e, a, W[4]);
+	_RS0(a, b, c, d, e, W[5]);
+	_RS0(e, a, b, c, d, W[6]);
+	_RS0(d, e, a, b, c, W[7]);
+	_RS0(c, d, e, a, b, W[8]);
+	_RS0(b, c, d, e, a, W[9]);
+	_RS0(a, b, c, d, e, W[10]);
+	_RS0(e, a, b, c, d, W[11]);
+	_RS0(d, e, a, b, c, W[12]);
+	_RS0(c, d, e, a, b, W[13]);
+	_RS0(b, c, d, e, a, W[14]);
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	_R0(e, a, b, c, d, 16);
+	_R0(d, e, a, b, c, 17);
+	_R0(c, d, e, a, b, 18);
+	_R0(b, c, d, e, a, 19);
+
+	// round 20 to 39
+	_R1(a, b, c, d, e, 20);
+	_R1(e, a, b, c, d, 21);
+	_R1(d, e, a, b, c, 22);
+	_R1(c, d, e, a, b, 23);
+	_R1(b, c, d, e, a, 24);
+	_R1(a, b, c, d, e, 25);
+	_R1(e, a, b, c, d, 26);
+	_R1(d, e, a, b, c, 27);
+	_R1(c, d, e, a, b, 28);
+	_R1(b, c, d, e, a, 29);
+	_R1(a, b, c, d, e, 30);
+	_R1(e, a, b, c, d, 31);
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] += a;
+	m_state[1] += b;
+	m_state[2] += c;
+	m_state[3] += d;
+	m_state[4] += e;
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	// input[64] to input[79], 16bytes, 128bits
+	for (i = 0; i < 4; i++){
+		W[i] = input[4*i+64] << 24 | input[4*i+65] << 16 | input[4*i+66] << 8 | input[4*i+67];
+	}
+
+	W[4] = 0x80000000;		// padding
+
+/*
+	for (int i = 5; i < 15; i++){
+		W[i] = 0;
+	}
+*/
+
+	W[15] = 80 * 8;		// bits of Message Block (80 bytes * 8 bits)
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS0(b, c, d, e, a, W[4]);
+	_RS00(a, b, c, d, e);		// W[5] == 0
+	_RS00(e, a, b, c, d);		// W[6] == 0
+	_RS00(d, e, a, b, c);		// W[7] == 0
+	_RS00(c, d, e, a, b);		// W[8] == 0
+	_RS00(b, c, d, e, a);		// W[9] == 0
+	_RS00(a, b, c, d, e);		// W[10] == 0
+	_RS00(e, a, b, c, d);		// W[11] == 0
+	_RS00(d, e, a, b, c);		// W[12] == 0
+	_RS00(c, d, e, a, b);		// W[13] == 0
+	_RS00(b, c, d, e, a);		// W[14] == 0
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	W[0] = ROL32(W[2] ^ W[0], 1);		// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
+	_RS0(e, a, b, c, d, W[0]);
+
+	W[1] = ROL32(W[3] ^ W[1], 1);		// (17, W[14]==0, W[9]==0, W[3], W[1])
+	_RS0(d, e, a, b, c, W[1]);
+
+	W[2] = ROL32(W[15] ^ W[4] ^ W[2], 1);		// (18, W[15], W[10]==0, W[4], W[2])
+	_RS0(c, d, e, a, b, W[2]);
+
+	W[3] = ROL32(W[0] ^ W[3], 1);		// (19, W[0], W[11]==0, W[5]==0, W[3])
+	_RS0(b, c, d, e, a, W[3]);
+
+	// round 20 to 31
+	W[4] = ROL32(W[1] ^ W[4], 1);		// (20, W[1], W[12]==0, W[6]==0, W[4])
+	_RS1(a, b, c, d, e, W[4]);
+
+	W[5] = ROL32(W[2], 1);				// (21, W[2], W[13]==0, W[7]==0, W[5]==0)
+	_RS1(e, a, b, c, d, W[5]);
+
+	W[6] = ROL32(W[3], 1);				// (22, W[3], W[14]==0, W[8]==0, W[6]==0)
+	_RS1(d, e, a, b, c, W[6]);
+
+	W[7] = ROL32(W[4] ^ W[15], 1);		// (23, W[4], W[15], W[9]==0, W[7]==0)
+	_RS1(c, d, e, a, b, W[7]);
+
+	W[8] = ROL32(W[5] ^ W[0], 1);		// (24, W[5], W[0], W[10]==0, W[8]==0)
+	_RS1(b, c, d, e, a, W[8]);
+
+	W[9] = ROL32(W[6] ^ W[1], 1);		// (25, W[6], W[1], W[11]==0, W[9]==0)
+	_RS1(a, b, c, d, e, W[9]);
+
+	W[10] = ROL32(W[7] ^ W[2], 1);		// (26, W[7], W[2], W[12]==0, W[10]==0)
+	_RS1(e, a, b, c, d, W[10]);
+
+	W[11] = ROL32(W[8] ^ W[3], 1);		// (27, W[8], W[3], W[13]==0, W[11]==0)
+	_RS1(d, e, a, b, c, W[11]);
+
+	W[12] = ROL32(W[9] ^ W[4], 1);		// (28, W[9], W[4], W[14]==0, W[12]==0)
+	_RS1(c, d, e, a, b, W[12]);
+
+	W[13] = ROL32(W[10] ^ W[5] ^ W[15], 1);		// (29, W[10], W[5], W[15], W[13]==0)
+	_RS1(b, c, d, e, a, W[13]);
+
+	W[14] = ROL32(W[11] ^ W[6] ^ W[0], 1);		// (30, W[11], W[6], W[0], W[14]==0)
+	_RS1(a, b, c, d, e, W[14]);
+
+	W[15] = ROL32(W[12] ^ W[7] ^ W[1] ^ W[15], 1);		// (31, W[12], W[7], W[1], W[15])
+	_RS1(e, a, b, c, d, W[15]);
+
+	// round 32 to 39
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] += a;
+	m_state[1] += b;
+	m_state[2] += c;
+	m_state[3] += d;
+	m_state[4] += e;
+
+	m_state[0] = swab32(m_state[0]);
+	m_state[1] = swab32(m_state[1]);
+	m_state[2] = swab32(m_state[2]);
+	m_state[3] = swab32(m_state[3]);
+	m_state[4] = swab32(m_state[4]);
+}
+
+
+void b64enc(const uint32_t *hash, char *str)
+{
+	const char b64t[] = {
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+		'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+		'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+		'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'
+	};
+
+	str[0] = b64t[hash[0] >> 26];
+	str[1] = b64t[(hash[0] >> 20) & 63];
+	str[2] = b64t[(hash[0] >> 14) & 63];
+	str[3] = b64t[(hash[0] >> 8) & 63];
+	str[4] = b64t[(hash[0] >> 2) & 63];
+	str[5] = b64t[(hash[0] << 4 | hash[1] >> 28) & 63];
+	str[6] = b64t[(hash[1] >> 22) & 63];
+	str[7] = b64t[(hash[1] >> 16) & 63];
+	str[8] = b64t[(hash[1] >> 10) & 63];
+	str[9] = b64t[(hash[1] >> 4) & 63];
+	str[10] = b64t[(hash[1] << 2 | hash[2] >> 30) & 63];
+	str[11] = b64t[(hash[2] >> 24) & 63];
+	str[12] = b64t[(hash[2] >> 18) & 63];
+	str[13] = b64t[(hash[2] >> 12) & 63];
+	str[14] = b64t[(hash[2] >> 6) & 63];
+	str[15] = b64t[hash[2] & 63];
+	str[16] = b64t[hash[3] >> 26];
+	str[17] = b64t[(hash[3] >> 20) & 63];
+	str[18] = b64t[(hash[3] >> 14) & 63];
+	str[19] = b64t[(hash[3] >> 8) & 63];
+	str[20] = b64t[(hash[3] >> 2) & 63];
+	str[21] = b64t[(hash[3] << 4 | hash[4] >> 28) & 63];
+	str[22] = b64t[(hash[4] >> 22) & 63];
+	str[23] = b64t[(hash[4] >> 16) & 63];
+	str[24] = b64t[(hash[4] >> 10) & 63];
+	str[25] = b64t[(hash[4] >> 4) & 63];
+	str[26] = b64t[(hash[4] << 2) & 63];
+	str[27] = 0;
+}
+
+
+#ifdef USE_SHA1_OPT		//////////////////////////////////////////////////
+
+// input - array of Little Endian uint32_t, 16elements, 64bytes
+void sha1hash80byte_1st(const uint32_t *input, uint32_t *m_state)
+{
+	uint32_t W[16];
+	uint32_t a, b, c, d, e;
+
+	// SHA-1 initialization constants
+	m_state[0] = H0;
+	m_state[1] = H1;
+	m_state[2] = H2;
+	m_state[3] = H3;
+	m_state[4] = H4;
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	memcpy(W, input, 64);
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS0(b, c, d, e, a, W[4]);
+	_RS0(a, b, c, d, e, W[5]);
+	_RS0(e, a, b, c, d, W[6]);
+	_RS0(d, e, a, b, c, W[7]);
+	_RS0(c, d, e, a, b, W[8]);
+	_RS0(b, c, d, e, a, W[9]);
+	_RS0(a, b, c, d, e, W[10]);
+	_RS0(e, a, b, c, d, W[11]);
+	_RS0(d, e, a, b, c, W[12]);
+	_RS0(c, d, e, a, b, W[13]);
+	_RS0(b, c, d, e, a, W[14]);
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	_R0(e, a, b, c, d, 16);
+	_R0(d, e, a, b, c, 17);
+	_R0(c, d, e, a, b, 18);
+	_R0(b, c, d, e, a, 19);
+
+	// round 20 to 39
+	_R1(a, b, c, d, e, 20);
+	_R1(e, a, b, c, d, 21);
+	_R1(d, e, a, b, c, 22);
+	_R1(c, d, e, a, b, 23);
+	_R1(b, c, d, e, a, 24);
+	_R1(a, b, c, d, e, 25);
+	_R1(e, a, b, c, d, 26);
+	_R1(d, e, a, b, c, 27);
+	_R1(c, d, e, a, b, 28);
+	_R1(b, c, d, e, a, 29);
+	_R1(a, b, c, d, e, 30);
+	_R1(e, a, b, c, d, 31);
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] += a;
+	m_state[1] += b;
+	m_state[2] += c;
+	m_state[3] += d;
+	m_state[4] += e;
+}
+
+
+void sha1hash80byte_2nd_opt(const uint32_t *input, const uint32_t *prehash, char *str)
+{
+	uint32_t W[16];
+	uint32_t a, b, c, d, e;
+	uint32_t m_state[5];
+	int i;
+
+	const char b64t[] = {
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+		'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+		'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+		'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'
+	};
+
+	for (i = 0; i < 5; i++){
+		m_state[i] = prehash[i];
+	}
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	memcpy(W, input, 16);
+
+	W[4] = 0x80000000;		// padding
+
+	W[15] = 80 * 8;		// bits of Message Block (80 bytes * 8 bits)
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS0(b, c, d, e, a, W[4]);
+	_RS00(a, b, c, d, e);		// W[5] == 0
+	_RS00(e, a, b, c, d);		// W[6] == 0
+	_RS00(d, e, a, b, c);		// W[7] == 0
+	_RS00(c, d, e, a, b);		// W[8] == 0
+	_RS00(b, c, d, e, a);		// W[9] == 0
+	_RS00(a, b, c, d, e);		// W[10] == 0
+	_RS00(e, a, b, c, d);		// W[11] == 0
+	_RS00(d, e, a, b, c);		// W[12] == 0
+	_RS00(c, d, e, a, b);		// W[13] == 0
+	_RS00(b, c, d, e, a);		// W[14] == 0
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	W[0] = ROL32(W[2] ^ W[0], 1);		// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
+	_RS0(e, a, b, c, d, W[0]);
+
+	W[1] = ROL32(W[3] ^ W[1], 1);		// (17, W[14]==0, W[9]==0, W[3], W[1])
+	_RS0(d, e, a, b, c, W[1]);
+
+	W[2] = ROL32(W[15] ^ W[4] ^ W[2], 1);		// (18, W[15], W[10]==0, W[4], W[2])
+	_RS0(c, d, e, a, b, W[2]);
+
+	W[3] = ROL32(W[0] ^ W[3], 1);		// (19, W[0], W[11]==0, W[5]==0, W[3])
+	_RS0(b, c, d, e, a, W[3]);
+
+	// round 20 to 31
+	W[4] = ROL32(W[1] ^ W[4], 1);		// (20, W[1], W[12]==0, W[6]==0, W[4])
+	_RS1(a, b, c, d, e, W[4]);
+
+	W[5] = ROL32(W[2], 1);				// (21, W[2], W[13]==0, W[7]==0, W[5]==0)
+	_RS1(e, a, b, c, d, W[5]);
+
+	W[6] = ROL32(W[3], 1);				// (22, W[3], W[14]==0, W[8]==0, W[6]==0)
+	_RS1(d, e, a, b, c, W[6]);
+
+	W[7] = ROL32(W[4] ^ W[15], 1);		// (23, W[4], W[15], W[9]==0, W[7]==0)
+	_RS1(c, d, e, a, b, W[7]);
+
+	W[8] = ROL32(W[5] ^ W[0], 1);		// (24, W[5], W[0], W[10]==0, W[8]==0)
+	_RS1(b, c, d, e, a, W[8]);
+
+	W[9] = ROL32(W[6] ^ W[1], 1);		// (25, W[6], W[1], W[11]==0, W[9]==0)
+	_RS1(a, b, c, d, e, W[9]);
+
+	W[10] = ROL32(W[7] ^ W[2], 1);		// (26, W[7], W[2], W[12]==0, W[10]==0)
+	_RS1(e, a, b, c, d, W[10]);
+
+	W[11] = ROL32(W[8] ^ W[3], 1);		// (27, W[8], W[3], W[13]==0, W[11]==0)
+	_RS1(d, e, a, b, c, W[11]);
+
+	W[12] = ROL32(W[9] ^ W[4], 1);		// (28, W[9], W[4], W[14]==0, W[12]==0)
+	_RS1(c, d, e, a, b, W[12]);
+
+	W[13] = ROL32(W[10] ^ W[5] ^ W[15], 1);		// (29, W[10], W[5], W[15], W[13]==0)
+	_RS1(b, c, d, e, a, W[13]);
+
+	W[14] = ROL32(W[11] ^ W[6] ^ W[0], 1);		// (30, W[11], W[6], W[0], W[14]==0)
+	_RS1(a, b, c, d, e, W[14]);
+
+	W[15] = ROL32(W[12] ^ W[7] ^ W[1] ^ W[15], 1);		// (31, W[12], W[7], W[1], W[15])
+	_RS1(e, a, b, c, d, W[15]);
+
+	// round 32 to 39
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] += a;
+	m_state[1] += b;
+	m_state[2] += c;
+	m_state[3] += d;
+	m_state[4] += e;
+
+	// Base64 encode
+	str[0] = b64t[m_state[0] >> 26];
+	str[1] = b64t[(m_state[0] >> 20) & 63];
+	str[2] = b64t[(m_state[0] >> 14) & 63];
+	str[3] = b64t[(m_state[0] >> 8) & 63];
+	str[4] = b64t[(m_state[0] >> 2) & 63];
+	str[5] = b64t[(m_state[0] << 4 | m_state[1] >> 28) & 63];
+	str[6] = b64t[(m_state[1] >> 22) & 63];
+	str[7] = b64t[(m_state[1] >> 16) & 63];
+	str[8] = b64t[(m_state[1] >> 10) & 63];
+	str[9] = b64t[(m_state[1] >> 4) & 63];
+	str[10] = b64t[(m_state[1] << 2 | m_state[2] >> 30) & 63];
+	str[11] = b64t[(m_state[2] >> 24) & 63];
+	str[12] = b64t[(m_state[2] >> 18) & 63];
+	str[13] = b64t[(m_state[2] >> 12) & 63];
+	str[14] = b64t[(m_state[2] >> 6) & 63];
+	str[15] = b64t[m_state[2] & 63];
+	str[16] = b64t[m_state[3] >> 26];
+	str[17] = b64t[(m_state[3] >> 20) & 63];
+	str[18] = b64t[(m_state[3] >> 14) & 63];
+	str[19] = b64t[(m_state[3] >> 8) & 63];
+	str[20] = b64t[(m_state[3] >> 2) & 63];
+	str[21] = b64t[(m_state[3] << 4 | m_state[4] >> 28) & 63];
+	str[22] = b64t[(m_state[4] >> 22) & 63];
+	str[23] = b64t[(m_state[4] >> 16) & 63];
+	str[24] = b64t[(m_state[4] >> 10) & 63];
+	str[25] = b64t[(m_state[4] >> 4) & 63];
+
+	memcpy(str + 26, str, 11);
+}
+
+
+void sha1hash12byte_opt(const char *input, uint32_t *hash)
+{
+	uint32_t W[16];
+	uint32_t a, b, c, d, e;
+	uint32_t m_state[5];
+	int i;
+	char trip[13], tripkey[13];
+
+	const char trip64t[] = {
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+		'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+		'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+		'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '/'
+	};
+
+	// SHA-1 initialization constants
+	m_state[0] = H0;
+	m_state[1] = H1;
+	m_state[2] = H2;
+	m_state[3] = H3;
+	m_state[4] = H4;
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	for (i = 0; i < 3; i++){
+		W[i] = input[4*i+0] << 24 | input[4*i+1] << 16 | input[4*i+2] << 8 | input[4*i+3];
+	}
+
+	W[3] = 0x80000000;		// padding
+
+	W[15] = 12 * 8;		// bits of Message Block (12 bytes * 8 bits)
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS00(b, c, d, e, a);		// W[4] == 0
+	_RS00(a, b, c, d, e);		// W[5] == 0
+	_RS00(e, a, b, c, d);		// W[6] == 0
+	_RS00(d, e, a, b, c);		// W[7] == 0
+	_RS00(c, d, e, a, b);		// W[8] == 0
+	_RS00(b, c, d, e, a);		// W[9] == 0
+	_RS00(a, b, c, d, e);		// W[10] == 0
+	_RS00(e, a, b, c, d);		// W[11] == 0
+	_RS00(d, e, a, b, c);		// W[12] == 0
+	_RS00(c, d, e, a, b);		// W[13] == 0
+	_RS00(b, c, d, e, a);		// W[14] == 0
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	W[0] = ROL32(W[2] ^ W[0], 1);		// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
+	_RS0(e, a, b, c, d, W[0]);
+
+	W[1] = ROL32(W[3] ^ W[1], 1);		// (17, W[14]==0, W[9]==0, W[3], W[1])
+	_RS0(d, e, a, b, c, W[1]);
+
+	W[2] = ROL32(W[15] ^ W[2], 1);		// (18, W[15], W[10]==0, W[4]==0, W[2])
+	_RS0(c, d, e, a, b, W[2]);
+
+	W[3] = ROL32(W[0] ^ W[3], 1);		// (19, W[0], W[11]==0, W[5]==0, W[3])
+	_RS0(b, c, d, e, a, W[3]);
+
+	// round 20 to 31
+	W[4] = ROL32(W[1], 1);				// (20, W[1], W[12]==0, W[6]==0, W[4]==0)
+	_RS1(a, b, c, d, e, W[4]);
+
+	W[5] = ROL32(W[2], 1);				// (21, W[2], W[13]==0, W[7]==0, W[5]==0)
+	_RS1(e, a, b, c, d, W[5]);
+
+	W[6] = ROL32(W[3], 1);				// (22, W[3], W[14]==0, W[8]==0, W[6]==0)
+	_RS1(d, e, a, b, c, W[6]);
+
+	W[7] = ROL32(W[4] ^ W[15], 1);		// (23, W[4], W[15], W[9]==0, W[7]==0)
+	_RS1(c, d, e, a, b, W[7]);
+
+	W[8] = ROL32(W[5] ^ W[0], 1);		// (24, W[5], W[0], W[10]==0, W[8]==0)
+	_RS1(b, c, d, e, a, W[8]);
+
+	W[9] = ROL32(W[6] ^ W[1], 1);		// (25, W[6], W[1], W[11]==0, W[9]==0)
+	_RS1(a, b, c, d, e, W[9]);
+
+	W[10] = ROL32(W[7] ^ W[2], 1);		// (26, W[7], W[2], W[12]==0, W[10]==0)
+	_RS1(e, a, b, c, d, W[10]);
+
+	W[11] = ROL32(W[8] ^ W[3], 1);		// (27, W[8], W[3], W[13]==0, W[11]==0)
+	_RS1(d, e, a, b, c, W[11]);
+
+	W[12] = ROL32(W[9] ^ W[4], 1);		// (28, W[9], W[4], W[14]==0, W[12]==0)
+	_RS1(c, d, e, a, b, W[12]);
+
+	W[13] = ROL32(W[10] ^ W[5] ^ W[15], 1);		// (29, W[10], W[5], W[15], W[13]==0)
+	_RS1(b, c, d, e, a, W[13]);
+
+	W[14] = ROL32(W[11] ^ W[6] ^ W[0], 1);		// (30, W[11], W[6], W[0], W[14]==0)
+	_RS1(a, b, c, d, e, W[14]);
+
+	W[15] = ROL32(W[12] ^ W[7] ^ W[1] ^ W[15], 1);		// (31, W[12], W[7], W[1], W[15])
+	_RS1(e, a, b, c, d, W[15]);
+
+	// round 32 to 39
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] += a;
+	m_state[1] += b;
+	m_state[2] += c;
+	m_state[3] += d;
+	m_state[4] += e;
+
+	// trip test
+	if (m_state[0] >> 2 == trip_target_uint){
+		trip[0] = trip64t[m_state[0] >> 26];
+		trip[1] = trip64t[(m_state[0] >> 20) & 63];
+		trip[2] = trip64t[(m_state[0] >> 14) & 63];
+		trip[3] = trip64t[(m_state[0] >> 8) & 63];
+		trip[4] = trip64t[(m_state[0] >> 2) & 63];
+		trip[5] = trip64t[(m_state[0] << 4 | m_state[1] >> 28) & 63];
+		trip[6] = trip64t[(m_state[1] >> 22) & 63];
+		trip[7] = trip64t[(m_state[1] >> 16) & 63];
+		trip[8] = trip64t[(m_state[1] >> 10) & 63];
+		trip[9] = trip64t[(m_state[1] >> 4) & 63];
+		trip[10] = trip64t[(m_state[1] << 2 | m_state[2] >> 30) & 63];
+		trip[11] = trip64t[(m_state[2] >> 24) & 63];
+		trip[12] = 0;
+
+		if (! strncmp(opt_findtrip, trip, strlen(opt_findtrip))){
+			memcpy(tripkey, input, 12);
+			tripkey[12] = 0;
+
+			applog(LOG_INFO, "tripkey: #%s, trip: %s (yay!!!)", tripkey, trip);
+
+			fprintf(fp_trip, "%s\t#%s\n", trip, tripkey);
+			fflush(fp_trip);
+		}
+	}
+
+	for (i = 0; i < 5; i++){
+		hash[i] ^= m_state[i];
+	}
+}
+
+#endif	// USE_SHA1_OPT		//////////////////////////////////////////////////
+
+
+#ifdef USE_SHA1_SSE2	//////////////////////////////////////////////////
+#undef ROL32
+#define ROL32(_val32, _nBits) (_mm_or_si128(_mm_slli_epi32((_val32), (_nBits)), _mm_srli_epi32((_val32), 32-(_nBits))))
+
+#undef SHABLK
+#define SHABLK(t) (W[(t)&15] = ROL32(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(W[((t)+13)&15], W[((t)+8)&15]), W[((t)+2)&15]), W[(t)&15]), 1))
+
+#undef _RS0
+#define _RS0(v,w,x,y,z,i) { \
+	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_and_si128((w), _mm_xor_si128((x), (y))), (y)), (i)), _mm_set1_epi32(K0)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _RS00
+#define _RS00(v,w,x,y,z) { \
+	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_and_si128((w), _mm_xor_si128((x), (y))), (y)), _mm_set1_epi32(K0)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _RS1
+#define _RS1(v,w,x,y,z,i) { \
+	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_xor_si128((w), (x)), (y)), (i)), _mm_set1_epi32(K1)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _R0
+#define _R0(v,w,x,y,z,t) { \
+	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_and_si128((w), _mm_xor_si128((x), (y))), (y)), SHABLK(t)), _mm_set1_epi32(K0)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _R1
+#define _R1(v,w,x,y,z,t) { \
+	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_xor_si128((w), (x)), (y)), SHABLK(t)), _mm_set1_epi32(K1)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _R2
+#define _R2(v,w,x,y,z,t) { \
+	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_or_si128(_mm_and_si128(_mm_or_si128((w), (x)), (y)), _mm_and_si128((w), (x))), SHABLK(t)), _mm_set1_epi32(K2)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _R3
+#define _R3(v,w,x,y,z,t) { \
+	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_xor_si128((w), (x)), (y)), SHABLK(t)), _mm_set1_epi32(K3)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+
+void sha1hash12byte_sse2(const char *input, __m128i *hash)
+{
+	__attribute__((aligned(16))) __m128i W[16];
+	__attribute__((aligned(16))) __m128i a, b, c, d, e;
+	__attribute__((aligned(16))) __m128i m_state[5];
+	int i, j;
+	char trip[13], tripkey[13];
+	__attribute__((aligned(16))) uint32_t tmp0[4], tmp1[4], tmp2[4];
+
+	const char trip64t[] = {
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+		'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+		'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+		'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '/'
+	};
+
+	// SHA-1 initialization constants
+	m_state[0] = _mm_set1_epi32(H0);
+	m_state[1] = _mm_set1_epi32(H1);
+	m_state[2] = _mm_set1_epi32(H2);
+	m_state[3] = _mm_set1_epi32(H3);
+	m_state[4] = _mm_set1_epi32(H4);
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	for (i = 0; i < 3; i++){
+		W[i] = _mm_load_si128((__m128i *)&input[16 * i]);
+	}
+
+	W[3] = _mm_set1_epi32(0x80000000);		// padding
+
+	W[15] = _mm_set1_epi32(12 * 8);		// bits of Message Block (12 bytes * 8 bits)
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS00(b, c, d, e, a);		// W[4] == 0
+	_RS00(a, b, c, d, e);		// W[5] == 0
+	_RS00(e, a, b, c, d);		// W[6] == 0
+	_RS00(d, e, a, b, c);		// W[7] == 0
+	_RS00(c, d, e, a, b);		// W[8] == 0
+	_RS00(b, c, d, e, a);		// W[9] == 0
+	_RS00(a, b, c, d, e);		// W[10] == 0
+	_RS00(e, a, b, c, d);		// W[11] == 0
+	_RS00(d, e, a, b, c);		// W[12] == 0
+	_RS00(c, d, e, a, b);		// W[13] == 0
+	_RS00(b, c, d, e, a);		// W[14] == 0
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
+	W[0] = ROL32(_mm_xor_si128(W[2], W[0]), 1);
+	_RS0(e, a, b, c, d, W[0]);
+
+	// (17, W[14]==0, W[9]==0, W[3], W[1])
+	W[1] = ROL32(_mm_xor_si128(W[3], W[1]), 1);
+	_RS0(d, e, a, b, c, W[1]);
+
+	// (18, W[15], W[10]==0, W[4]==0, W[2])
+	W[2] = ROL32(_mm_xor_si128(W[15], W[2]), 1);
+	_RS0(c, d, e, a, b, W[2]);
+
+	// (19, W[0], W[11]==0, W[5]==0, W[3])
+	W[3] = ROL32(_mm_xor_si128(W[0], W[3]), 1);
+	_RS0(b, c, d, e, a, W[3]);
+
+	// round 20 to 31
+	// (20, W[1], W[12]==0, W[6]==0, W[4]==0)
+	W[4] = ROL32(W[1], 1);
+	_RS1(a, b, c, d, e, W[4]);
+
+	// (21, W[2], W[13]==0, W[7]==0, W[5]==0)
+	W[5] = ROL32(W[2], 1);
+	_RS1(e, a, b, c, d, W[5]);
+
+	// (22, W[3], W[14]==0, W[8]==0, W[6]==0)
+	W[6] = ROL32(W[3], 1);
+	_RS1(d, e, a, b, c, W[6]);
+
+	// (23, W[4], W[15], W[9]==0, W[7]==0)
+	W[7] = ROL32(_mm_xor_si128(W[4], W[15]), 1);
+	_RS1(c, d, e, a, b, W[7]);
+
+	// (24, W[5], W[0], W[10]==0, W[8]==0)
+	W[8] = ROL32(_mm_xor_si128(W[5], W[0]), 1);
+	_RS1(b, c, d, e, a, W[8]);
+
+	// (25, W[6], W[1], W[11]==0, W[9]==0)
+	W[9] = ROL32(_mm_xor_si128(W[6], W[1]), 1);
+	_RS1(a, b, c, d, e, W[9]);
+
+	// (26, W[7], W[2], W[12]==0, W[10]==0)
+	W[10] = ROL32(_mm_xor_si128(W[7], W[2]), 1);
+	_RS1(e, a, b, c, d, W[10]);
+
+	// (27, W[8], W[3], W[13]==0, W[11]==0)
+	W[11] = ROL32(_mm_xor_si128(W[8], W[3]), 1);
+	_RS1(d, e, a, b, c, W[11]);
+
+	// (28, W[9], W[4], W[14]==0, W[12]==0)
+	W[12] = ROL32(_mm_xor_si128(W[9], W[4]), 1);
+	_RS1(c, d, e, a, b, W[12]);
+
+	// (29, W[10], W[5], W[15], W[13]==0)
+	W[13] = ROL32(_mm_xor_si128(_mm_xor_si128(W[10], W[5]), W[15]), 1);
+	_RS1(b, c, d, e, a, W[13]);
+
+	// (30, W[11], W[6], W[0], W[14]==0)
+	W[14] = ROL32(_mm_xor_si128(_mm_xor_si128(W[11], W[6]), W[0]), 1);
+	_RS1(a, b, c, d, e, W[14]);
+
+	// (31, W[12], W[7], W[1], W[15])
+	W[15] = ROL32(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(W[12], W[7]), W[1]), W[15]), 1);
+	_RS1(e, a, b, c, d, W[15]);
+
+	// round 32 to 39
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] = _mm_add_epi32(m_state[0], a);
+	m_state[1] = _mm_add_epi32(m_state[1], b);
+	m_state[2] = _mm_add_epi32(m_state[2], c);
+	m_state[3] = _mm_add_epi32(m_state[3], d);
+	m_state[4] = _mm_add_epi32(m_state[4], e);
+
+	// trip test
+	_mm_store_si128((__m128i *)tmp0, m_state[0]);
+
+	for (i = 0; i < 4; i++){
+		if (tmp0[i] >> 2 == trip_target_uint){
+			_mm_store_si128((__m128i *)tmp1, m_state[1]);
+			_mm_store_si128((__m128i *)tmp2, m_state[2]);
+
+			trip[0] = trip64t[tmp0[i] >> 26];
+			trip[1] = trip64t[(tmp0[i] >> 20) & 63];
+			trip[2] = trip64t[(tmp0[i] >> 14) & 63];
+			trip[3] = trip64t[(tmp0[i] >> 8) & 63];
+			trip[4] = trip64t[(tmp0[i] >> 2) & 63];
+			trip[5] = trip64t[(tmp0[i] << 4 | tmp1[i] >> 28) & 63];
+			trip[6] = trip64t[(tmp1[i] >> 22) & 63];
+			trip[7] = trip64t[(tmp1[i] >> 16) & 63];
+			trip[8] = trip64t[(tmp1[i] >> 10) & 63];
+			trip[9] = trip64t[(tmp1[i] >> 4) & 63];
+			trip[10] = trip64t[(tmp1[i] << 2 | tmp2[i] >> 30) & 63];
+			trip[11] = trip64t[(tmp2[i] >> 24) & 63];
+			trip[12] = 0;
+
+			if (! strncmp(opt_findtrip, trip, strlen(opt_findtrip))){
+				for (j = 0; j < 3; j++){
+					tripkey[0 + 4 * j] = input[3 + 16 * j + 4 * i];
+					tripkey[1 + 4 * j] = input[2 + 16 * j + 4 * i];
+					tripkey[2 + 4 * j] = input[1 + 16 * j + 4 * i];
+					tripkey[3 + 4 * j] = input[0 + 16 * j + 4 * i];
+				}
+				tripkey[12] = 0;
+
+				applog(LOG_INFO, "tripkey: #%s, trip: %s (yay!!!)", tripkey, trip);
+
+				fprintf(fp_trip, "%s\t#%s\n", trip, tripkey);
+				fflush(fp_trip);
+			}
+		}
+	}
+
+	for (i = 0; i < 5; i++){
+		hash[i] = _mm_xor_si128(hash[i], m_state[i]);
+	}
+}
+
+
+void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, char *str)
+{
+	__attribute__((aligned(16))) __m128i W[16];
+	__attribute__((aligned(16))) __m128i a, b, c, d, e;
+	__attribute__((aligned(16))) __m128i m_state[5];
+	int i;
+	__attribute__((aligned(16))) uint32_t tmp[4];
+
+	const char b64t[] = {
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+		'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+		'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+		'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'
+	};
+
+	for (i = 0; i < 5; i++){
+		m_state[i] = _mm_set1_epi32(prehash[i]);
+	}
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	for (i = 0; i < 4; i++){
+		W[i] = _mm_load_si128((__m128i *)&input[4 * i]);
+	}
+
+	W[4] = _mm_set1_epi32(0x80000000);		// padding
+
+	W[15] = _mm_set1_epi32(80 * 8);		// bits of Message Block (80 bytes * 8 bits)
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS0(b, c, d, e, a, W[4]);
+	_RS00(a, b, c, d, e);		// W[5] == 0
+	_RS00(e, a, b, c, d);		// W[6] == 0
+	_RS00(d, e, a, b, c);		// W[7] == 0
+	_RS00(c, d, e, a, b);		// W[8] == 0
+	_RS00(b, c, d, e, a);		// W[9] == 0
+	_RS00(a, b, c, d, e);		// W[10] == 0
+	_RS00(e, a, b, c, d);		// W[11] == 0
+	_RS00(d, e, a, b, c);		// W[12] == 0
+	_RS00(c, d, e, a, b);		// W[13] == 0
+	_RS00(b, c, d, e, a);		// W[14] == 0
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
+	W[0] = ROL32(_mm_xor_si128(W[2], W[0]), 1);
+	_RS0(e, a, b, c, d, W[0]);
+
+	// (17, W[14]==0, W[9]==0, W[3], W[1])
+	W[1] = ROL32(_mm_xor_si128(W[3], W[1]), 1);
+	_RS0(d, e, a, b, c, W[1]);
+
+	// (18, W[15], W[10]==0, W[4], W[2])
+	W[2] = ROL32(_mm_xor_si128(_mm_xor_si128(W[15], W[4]), W[2]), 1);
+	_RS0(c, d, e, a, b, W[2]);
+
+	// (19, W[0], W[11]==0, W[5]==0, W[3])
+	W[3] = ROL32(_mm_xor_si128(W[0], W[3]), 1);
+	_RS0(b, c, d, e, a, W[3]);
+
+	// round 20 to 31
+	// (20, W[1], W[12]==0, W[6]==0, W[4])
+	W[4] = ROL32(_mm_xor_si128(W[1], W[4]), 1);
+	_RS1(a, b, c, d, e, W[4]);
+
+	// (21, W[2], W[13]==0, W[7]==0, W[5]==0)
+	W[5] = ROL32(W[2], 1);
+	_RS1(e, a, b, c, d, W[5]);
+
+	// (22, W[3], W[14]==0, W[8]==0, W[6]==0)
+	W[6] = ROL32(W[3], 1);
+	_RS1(d, e, a, b, c, W[6]);
+
+	// (23, W[4], W[15], W[9]==0, W[7]==0)
+	W[7] = ROL32(_mm_xor_si128(W[4], W[15]), 1);
+	_RS1(c, d, e, a, b, W[7]);
+
+	// (24, W[5], W[0], W[10]==0, W[8]==0)
+	W[8] = ROL32(_mm_xor_si128(W[5], W[0]), 1);
+	_RS1(b, c, d, e, a, W[8]);
+
+	// (25, W[6], W[1], W[11]==0, W[9]==0)
+	W[9] = ROL32(_mm_xor_si128(W[6], W[1]), 1);
+	_RS1(a, b, c, d, e, W[9]);
+
+	// (26, W[7], W[2], W[12]==0, W[10]==0)
+	W[10] = ROL32(_mm_xor_si128(W[7], W[2]), 1);
+	_RS1(e, a, b, c, d, W[10]);
+
+	// (27, W[8], W[3], W[13]==0, W[11]==0)
+	W[11] = ROL32(_mm_xor_si128(W[8], W[3]), 1);
+	_RS1(d, e, a, b, c, W[11]);
+
+	// (28, W[9], W[4], W[14]==0, W[12]==0)
+	W[12] = ROL32(_mm_xor_si128(W[9], W[4]), 1);
+	_RS1(c, d, e, a, b, W[12]);
+
+	// (29, W[10], W[5], W[15], W[13]==0)
+	W[13] = ROL32(_mm_xor_si128(_mm_xor_si128(W[10], W[5]), W[15]), 1);
+	_RS1(b, c, d, e, a, W[13]);
+
+	// (30, W[11], W[6], W[0], W[14]==0)
+	W[14] = ROL32(_mm_xor_si128(_mm_xor_si128(W[11], W[6]), W[0]), 1);
+	_RS1(a, b, c, d, e, W[14]);
+
+	// (31, W[12], W[7], W[1], W[15])
+	W[15] = ROL32(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(W[12], W[7]), W[1]), W[15]), 1);
+	_RS1(e, a, b, c, d, W[15]);
+
+	// round 32 to 39
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] = _mm_add_epi32(m_state[0], a);
+	m_state[1] = _mm_add_epi32(m_state[1], b);
+	m_state[2] = _mm_add_epi32(m_state[2], c);
+	m_state[3] = _mm_add_epi32(m_state[3], d);
+	m_state[4] = _mm_add_epi32(m_state[4], e);
+
+	// Base64 encode
+#define _B64TL4(i) { \
+	str[(i)] = b64t[tmp[0]]; \
+	str[(i)+48*1] = b64t[tmp[1]]; \
+	str[(i)+48*2] = b64t[tmp[2]]; \
+	str[(i)+48*3] = b64t[tmp[3]]; \
+}
+
+	// str[0] = b64t[hash[0] >> 26];
+	_mm_store_si128((__m128i *)tmp, _mm_srli_epi32(m_state[0], 26));
+	_B64TL4(0);
+
+	// str[1] = b64t[(hash[0] >> 20) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[0], 20), _mm_set1_epi32(63)));
+	_B64TL4(1);
+
+	// str[2] = b64t[(hash[0] >> 14) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[0], 14), _mm_set1_epi32(63)));
+	_B64TL4(2);
+
+	// str[3] = b64t[(hash[0] >> 8) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[0], 8), _mm_set1_epi32(63)));
+	_B64TL4(3);
+
+	// str[4] = b64t[(hash[0] >> 2) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[0], 2), _mm_set1_epi32(63)));
+	_B64TL4(4);
+
+	// str[5] = b64t[(hash[0] << 4 | hash[1] >> 28) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_or_si128(_mm_slli_epi32(m_state[0], 4), _mm_srli_epi32(m_state[1], 28)), _mm_set1_epi32(63)));
+	_B64TL4(5);
+
+	// str[6] = b64t[(hash[1] >> 22) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[1], 22), _mm_set1_epi32(63)));
+	_B64TL4(6);
+
+	// str[7] = b64t[(hash[1] >> 16) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[1], 16), _mm_set1_epi32(63)));
+	_B64TL4(7);
+
+	// str[8] = b64t[(hash[1] >> 10) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[1], 10), _mm_set1_epi32(63)));
+	_B64TL4(8);
+
+	// str[9] = b64t[(hash[1] >> 4) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[1], 4), _mm_set1_epi32(63)));
+	_B64TL4(9);
+
+	// str[10] = b64t[(hash[1] << 2 | hash[2] >> 30) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_or_si128(_mm_slli_epi32(m_state[1], 2), _mm_srli_epi32(m_state[2], 30)), _mm_set1_epi32(63)));
+	_B64TL4(10);
+
+	// str[11] = b64t[(hash[2] >> 24) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[2], 24), _mm_set1_epi32(63)));
+	_B64TL4(11);
+
+	// str[12] = b64t[(hash[2] >> 18) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[2], 18), _mm_set1_epi32(63)));
+	_B64TL4(12);
+
+	// str[13] = b64t[(hash[2] >> 12) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[2], 12), _mm_set1_epi32(63)));
+	_B64TL4(13);
+
+	// str[14] = b64t[(hash[2] >> 6) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[2], 6), _mm_set1_epi32(63)));
+	_B64TL4(14);
+
+	// str[15] = b64t[hash[2] & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(m_state[2], _mm_set1_epi32(63)));
+	_B64TL4(15);
+
+	// str[16] = b64t[hash[3] >> 26];
+	_mm_store_si128((__m128i *)tmp, _mm_srli_epi32(m_state[3], 26));
+	_B64TL4(16);
+
+	// str[17] = b64t[(hash[3] >> 20) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[3], 20), _mm_set1_epi32(63)));
+	_B64TL4(17);
+
+	// str[18] = b64t[(hash[3] >> 14) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[3], 14), _mm_set1_epi32(63)));
+	_B64TL4(18);
+
+	// str[19] = b64t[(hash[3] >> 8) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[3], 8), _mm_set1_epi32(63)));
+	_B64TL4(19);
+
+	// str[20] = b64t[(hash[3] >> 2) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[3], 2), _mm_set1_epi32(63)));
+	_B64TL4(20);
+
+	// str[21] = b64t[(hash[3] << 4 | hash[4] >> 28) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_or_si128(_mm_slli_epi32(m_state[3], 4), _mm_srli_epi32(m_state[4], 28)), _mm_set1_epi32(63)));
+	_B64TL4(21);
+
+	// str[22] = b64t[(hash[4] >> 22) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[4], 22), _mm_set1_epi32(63)));
+	_B64TL4(22);
+
+	// str[23] = b64t[(hash[4] >> 16) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[4], 16), _mm_set1_epi32(63)));
+	_B64TL4(23);
+
+	// str[24] = b64t[(hash[4] >> 10) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[4], 10), _mm_set1_epi32(63)));
+	_B64TL4(24);
+
+	// str[25] = b64t[(hash[4] >> 4) & 63];
+	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[4], 4), _mm_set1_epi32(63)));
+	_B64TL4(25);
+
+#undef _B64TL4
+
+	for (i = 0; i < 4; i++){
+		memcpy(str + 26 + 48 * i, str + 48 * i, 11);
+	}
+}
+
+#endif	// USE_SHA1_SSE2	//////////////////////////////////////////////////
+
+
+#ifdef __MINGW32__
+/* 
+ * public domain strtok_r() by Charlie Gordon
+ *
+ *   from comp.lang.c  9/14/2007
+ *
+ *      http://groups.google.com/group/comp.lang.c/msg/2ab1ecbb86646684
+ *
+ *     (Declaration that it's public domain):
+ *      http://groups.google.com/group/comp.lang.c/msg/7c7b39328fefab9c
+ */
+char* strtok_r(
+    char *str, 
+    const char *delim, 
+    char **nextp)
+{
+    char *ret;
+
+    if (str == NULL)
+    {
+        str = *nextp;
+    }
+
+    str += strspn(str, delim);
+
+    if (*str == '\0')
+    {
+        return NULL;
+    }
+
+    ret = str;
+
+    str += strcspn(str, delim);
+
+    if (*str)
+    {
+        *str++ = '\0';
+    }
+
+    *nextp = str;
+
+    return ret;
+}
+#endif		// __MINGW32__
+
 
 inline void encodeb64(const unsigned char* pch, char* buff)
 {
@@ -163,7 +1824,13 @@ uint32_t sha1coinhash(void *state, const void *input)
   uint32_t hash[5] __attribute__((aligned(32))) = { 0 };
   uint32_t prehash0;
   uint32_t hash4 = 0;
+
+#ifdef USE_SHA1_OPENSSL
   SHA1(input, 20 * 4, (void *)prehash);
+#else
+	sha1hash80byte(input, prehash);
+#endif
+
 #if 0
   encodeb64((const unsigned char *)prehash, (unsigned char *)str);
 #else
@@ -172,7 +1839,11 @@ uint32_t sha1coinhash(void *state, const void *input)
   memcpy(&str[26], str, 11);
 //str[37] = 0;
   for (int i = 0; i < 26; i++) {
+#ifdef USE_SHA1_OPENSSL
     SHA1((const unsigned char*)&str[i], 12, (unsigned char *)prehash);
+#else
+  	sha1hash12byte(str + i, prehash);
+#endif
 #define TRIP
 #if defined(TRIP)
     prehash0 = prehash[0] & 0x00ffffff;
@@ -210,6 +1881,157 @@ uint32_t sha1coinhash(void *state, const void *input)
   return hash4;
 }
 
+
+#ifdef USE_SHA1_OPT
+static inline int scanhash_sha1coin_opt(int thr_id, uint32_t *pdata,
+	const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done)
+{
+	const uint32_t first_nonce = pdata[19];
+	uint32_t n = first_nonce - 1;
+
+	uint32_t data[4] __attribute__((aligned(32)));
+
+	char str[38] __attribute__((aligned(32))) = {0};	// 26 + 11 + 1
+	char tripkey[12] __attribute__((aligned(32))) = {0};
+
+	uint32_t prehash[5] __attribute__((aligned(32)));
+	uint32_t hash[8] __attribute__((aligned(32)));
+	int i, j, k;
+
+	// process 1st block of SHA-1, 512bits, 64bytes
+	sha1hash80byte_1st(pdata, prehash);
+
+	// setup data for 2nd block of SHA-1, 16bytes
+	memcpy(data, pdata + 16, 16);
+
+	do {
+		data[3] = ++n;
+
+		// process 2nd block of SHA-1, 16bytes, generate str
+		sha1hash80byte_2nd_opt(data, prehash, str);
+
+		memset(hash, 0, 32);
+
+		for (k = 0; k < 26; k++){
+			// generate tripkey from str
+			memcpy(tripkey, str + k, 12);
+
+			// compute hash and search trip
+			sha1hash12byte_opt(tripkey, hash + 3);
+		}
+
+		hash[7] = swab32(hash[7]);
+
+		if (hash[7] <= ptarget[7]){
+			for (i = 0; i < 7; i++){
+				hash[i] = swab32(hash[i]);
+			}
+
+			if (fulltest(hash, ptarget)){
+				pdata[19] = data[3];
+				*hashes_done = n - first_nonce + 1;
+				return 1;
+			}
+		}
+	} while (n < max_nonce && !work_restart[thr_id].restart);
+
+	*hashes_done = n - first_nonce + 1;
+	pdata[19] = n;
+	return 0;
+}
+
+#endif	// USE_SHA1_OPT
+
+
+#ifdef USE_SHA1_SSE2
+static inline int scanhash_sha1coin_sse2(int thr_id, uint32_t *pdata,
+	const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done)
+{
+	const uint32_t first_nonce = pdata[19];
+	uint32_t n = first_nonce - 1;
+
+	uint32_t data[4 * 4] __attribute__((aligned(32)));
+
+	char str[4 * 48] __attribute__((aligned(32))) = {0};	// (26 + 11 + 1 + padding) * 4
+	char tripkey[4 * 4 * 3] __attribute__((aligned(32)));
+
+	uint32_t prehash[5] __attribute__((aligned(32)));
+	uint32_t hash[8] __attribute__((aligned(32))) = {0};
+	__m128i hash_m128i[5] __attribute__((aligned(32)));
+	int i, j, k;
+	__attribute__((aligned(16))) uint32_t tmp0[4], tmp1[4], tmp2[4], tmp3[4], tmp4[4];
+
+	// process 1st block of SHA-1, 512bits, 64bytes
+	sha1hash80byte_1st(pdata, prehash);
+
+	// setup data for 2nd block of SHA-1, 16bytes
+	memcpy(data, pdata + 16, 16);
+	for (i = 3; i >= 0; i--){
+		for (j = 0; j < 4; j++){
+			data[4 * i + j] = data[i];
+		}
+	}
+
+	do {
+		for (i = 0; i < 4; i++){
+			data[4 * 3 + i] = ++n;
+		}
+
+		// process 2nd block of SHA-1, 16bytes, generate str
+		sha1hash80byte_2nd_sse2(data, prehash, str);
+
+		for (i = 0; i < 5; i++){
+			hash_m128i[i] = _mm_set1_epi32(0);
+		}
+
+		for (k = 0; k < 26; k++){
+			// generate tripkey table from str
+			for (i = 0; i < 4; i++){
+				for (j = 0; j < 3; j++){
+					tripkey[3 + 4 * i + 16 * j] = str[k + 0 + 48 * i + 4 * j];
+					tripkey[2 + 4 * i + 16 * j] = str[k + 1 + 48 * i + 4 * j];
+					tripkey[1 + 4 * i + 16 * j] = str[k + 2 + 48 * i + 4 * j];
+					tripkey[0 + 4 * i + 16 * j] = str[k + 3 + 48 * i + 4 * j];
+				}
+			}
+
+			// compute hash and search trip
+			sha1hash12byte_sse2(tripkey, hash_m128i);
+		}
+
+		_mm_store_si128((__m128i *)tmp4, hash_m128i[4]);
+
+		for (i = 0; i < 4; i++){
+			hash[7] = swab32(tmp4[i]);
+
+			if (hash[7] <= ptarget[7]){
+				_mm_store_si128((__m128i *)tmp0, hash_m128i[0]);
+				_mm_store_si128((__m128i *)tmp1, hash_m128i[1]);
+				_mm_store_si128((__m128i *)tmp2, hash_m128i[2]);
+				_mm_store_si128((__m128i *)tmp3, hash_m128i[3]);
+
+				hash[3] = swab32(tmp0[i]);
+				hash[4] = swab32(tmp1[i]);
+				hash[5] = swab32(tmp2[i]);
+				hash[6] = swab32(tmp3[i]);
+
+				if (fulltest(hash, ptarget)){
+					pdata[19] = data[4 * 3 + i];
+					*hashes_done = n - first_nonce + 1;
+					return 1;
+				}
+			}
+		}
+	} while (n < max_nonce && !work_restart[thr_id].restart);
+
+	*hashes_done = n - first_nonce + 1;
+	pdata[19] = n;
+	return 0;
+}
+
+#endif	// USE_SHA1_SSE2
+
+
 int scanhash_sha1coin(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
     uint32_t max_nonce, unsigned long *hashes_done)
 {
@@ -220,6 +2042,15 @@ int scanhash_sha1coin(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 #if defined(CHEAT)
   uint32_t hash7;
 #endif
+
+#ifdef USE_SHA1_SSE2
+	return scanhash_sha1coin_sse2(thr_id, pdata, ptarget, max_nonce, hashes_done);
+#endif
+
+#ifdef USE_SHA1_OPT
+	return scanhash_sha1coin_opt(thr_id, pdata, ptarget, max_nonce, hashes_done);
+#endif
+
   hash[0] = 0;
   hash[1] = 0;
   hash[2] = 0;

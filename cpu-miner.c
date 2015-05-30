@@ -109,14 +109,14 @@ struct workio_cmd {
 enum sha256_algos {
 	ALGO_SCRYPT,		/* scrypt(1024,1,1) */
 	ALGO_SHA256D,		/* SHA-256d */
-	ALGO_QUARK,
+//	ALGO_QUARK,
 	ALGO_SHA1COIN,
 };
 
 static const char *algo_names[] = {
 	[ALGO_SCRYPT]		= "scrypt",
 	[ALGO_SHA256D]		= "sha256d",
-	[ALGO_QUARK]		= "quark",
+//	[ALGO_QUARK]		= "quark",
 	[ALGO_SHA1COIN]		= "sha1coin",
 };
 
@@ -144,7 +144,7 @@ static int num_processors;
 static char *rpc_url;
 static char *rpc_userpass;
 static char *rpc_user, *rpc_pass;
-char *opt_findtrip = "sha1";
+char *opt_findtrip = "sha1/";
 char *opt_cert;
 char *opt_proxy;
 long opt_proxy_type;
@@ -154,6 +154,47 @@ int longpoll_thr_id = -1;
 int stratum_thr_id = -1;
 struct work_restart *work_restart = NULL;
 static struct stratum_ctx stratum;
+
+#ifdef USE_SHA1_OPT
+uint32_t trip_target_uint;
+FILE *fp_trip;
+
+void set_trip_target_uint()
+{
+	char buf[8];
+	int i;
+
+	if (strlen(opt_findtrip) < 5 || strlen(opt_findtrip) > 12){
+		fprintf(stderr, "Trip target must be 5 - 12 characters\n");
+		exit(1);
+	}
+
+	// Base64 decode with modified table for trip
+	for (i = 0; i < 5; i++){
+		if (opt_findtrip[i] >= 'A' && opt_findtrip[i] <= 'Z'){
+			buf[i] = opt_findtrip[i] - 'A';
+		}
+		else if (opt_findtrip[i] >= 'a' && opt_findtrip[i] <= 'z'){
+			buf[i] = opt_findtrip[i] - 'a' + 26;
+		}
+		else if (opt_findtrip[i] >= '0' && opt_findtrip[i] <= '9'){
+			buf[i] = opt_findtrip[i] - '0' + 52;
+		}
+		else if (opt_findtrip[i] == '.'){
+			buf[i] = 62;
+		}
+		else if (opt_findtrip[i] == '/'){
+			buf[i] = 63;
+		}
+		else {
+			fprintf(stderr, "Trip target contain invalid character\n");
+			exit(1);
+		}
+	}
+
+	trip_target_uint = buf[0] << 24 | buf[1] << 18 | buf[2] << 12 | buf[3] << 6 | buf[4];
+}
+#endif	// USE_SHA1_OPT
 
 pthread_mutex_t applog_lock;
 pthread_mutex_t stats_lock;
@@ -179,7 +220,6 @@ Options:\n\
   -a, --algo=ALGO       specify the algorithm to use\n\
                           scrypt    scrypt(1024, 1, 1) (default)\n\
                           sha256d   SHA-256d\n\
-                          quark     Quarkcoin\n\
                           sha1coin  Sha1coin\n\
   -o, --url=URL         URL of mining server (default: " DEF_RPC_URL ")\n\
   -O, --userpass=U:P    username:password pair for mining server\n\
@@ -794,12 +834,16 @@ static void *miner_thread(void *userdata)
 			rc = scanhash_sha256d(thr_id, work.data, work.target,
 			                      max_nonce, &hashes_done);
 			break;
+/*
 		case ALGO_QUARK:
 			rc = scanhash_quark(thr_id, work.data, work.target,
 			                      max_nonce, &hashes_done);
 			break;
+*/
 		case ALGO_SHA1COIN:
+#ifndef USE_SHA1_OPT
 			genb64tbl();
+#endif
 			rc = scanhash_sha1coin(thr_id, work.data, work.target,
 			                      max_nonce, &hashes_done);
 			break;
@@ -813,10 +857,12 @@ static void *miner_thread(void *userdata)
 		timeval_subtract(&diff, &tv_end, &tv_start);
 		if (diff.tv_usec || diff.tv_sec) {
 			pthread_mutex_lock(&stats_lock);
+/*
                         if (opt_algo == ALGO_QUARK) 
 			    thr_hashrates[thr_id] =
 				hashes_done CHEATFACTOR / (diff.tv_sec + 1e-6 * diff.tv_usec);
                         else
+*/
 			    thr_hashrates[thr_id] =
 				hashes_done / (diff.tv_sec + 1e-6 * diff.tv_usec);
 			pthread_mutex_unlock(&stats_lock);
@@ -1324,6 +1370,17 @@ int main(int argc, char *argv[])
 
 	/* parse command line */
 	parse_cmdline(argc, argv);
+
+#ifdef USE_SHA1_OPT
+	if (opt_algo == ALGO_SHA1COIN){
+		set_trip_target_uint();
+
+		if ((fp_trip = fopen("trip.txt", "a")) == NULL){
+			fprintf(stderr, "Cannot open trip.txt\n");
+			exit(1);
+		}
+	}
+#endif
 
 	pthread_mutex_init(&applog_lock, NULL);
 	pthread_mutex_init(&stats_lock, NULL);

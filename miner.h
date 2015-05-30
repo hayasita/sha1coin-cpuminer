@@ -151,14 +151,29 @@ void sha256_transform_8way(uint32_t *state, const uint32_t *block, int swap);
 extern int scanhash_sha256d(int thr_id, uint32_t *pdata,
 	const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done);
 
+/*
 extern int scanhash_quark(int thr_id, uint32_t *pdata,
 	const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done);
 	
 extern void quarkhash(void *state, const void *input);
+*/
 	
+#define USE_SHA1_OPT 1
+
+#ifdef __SSE2__
+#define USE_SHA1_SSE2 1
+#endif
+
+#ifdef USE_SHA1_OPT
+extern uint32_t trip_target_uint;
+extern FILE *fp_trip;
+#endif
+
 extern int scanhash_sha1coin(int thr_id, uint32_t *pdata,
 	const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done);
 	
+extern void genb64tbl();
+
 extern unsigned char *scrypt_buffer_alloc();
 extern int scanhash_scrypt(int thr_id, uint32_t *pdata,
 	unsigned char *scratchbuf, const uint32_t *ptarget,
