@@ -1044,51 +1044,62 @@ void sha1hash12byte_opt(const char *input, uint32_t *hash)
 
 
 #ifdef USE_SHA1_SSE2	//////////////////////////////////////////////////
+
+#define MM_OR(a, b) _mm_or_si128((a), (b))
+#define MM_AND(a, b) _mm_and_si128((a), (b))
+#define MM_XOR(a, b) _mm_xor_si128((a), (b))
+#define MM_ADD(a, b) _mm_add_epi32((a), (b))
+
+#define MM_SLLI(a, b) _mm_slli_epi32((a), (b))
+#define MM_SRLI(a, b) _mm_srli_epi32((a), (b))
+
+#define MM_SET1(a) _mm_set1_epi32((a))
+
 #undef ROL32
-#define ROL32(_val32, _nBits) (_mm_or_si128(_mm_slli_epi32((_val32), (_nBits)), _mm_srli_epi32((_val32), 32-(_nBits))))
+#define ROL32(_val32, _nBits) (MM_OR(MM_SLLI((_val32), (_nBits)), MM_SRLI((_val32), 32-(_nBits))))
 
 #undef SHABLK
-#define SHABLK(t) (W[(t)&15] = ROL32(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(W[((t)+13)&15], W[((t)+8)&15]), W[((t)+2)&15]), W[(t)&15]), 1))
+#define SHABLK(t) (W[(t)&15] = ROL32(MM_XOR(MM_XOR(MM_XOR(W[((t)+13)&15], W[((t)+8)&15]), W[((t)+2)&15]), W[(t)&15]), 1))
 
 #undef _RS0
 #define _RS0(v,w,x,y,z,i) { \
-	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_and_si128((w), _mm_xor_si128((x), (y))), (y)), (i)), _mm_set1_epi32(K0)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_AND((w), MM_XOR((x), (y))), (y)), (i)), MM_SET1(K0)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
 #undef _RS00
 #define _RS00(v,w,x,y,z) { \
-	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_and_si128((w), _mm_xor_si128((x), (y))), (y)), _mm_set1_epi32(K0)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_XOR(MM_AND((w), MM_XOR((x), (y))), (y)), MM_SET1(K0)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
 #undef _RS1
 #define _RS1(v,w,x,y,z,i) { \
-	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_xor_si128((w), (x)), (y)), (i)), _mm_set1_epi32(K1)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_XOR((w), (x)), (y)), (i)), MM_SET1(K1)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
 #undef _R0
 #define _R0(v,w,x,y,z,t) { \
-	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_and_si128((w), _mm_xor_si128((x), (y))), (y)), SHABLK(t)), _mm_set1_epi32(K0)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_AND((w), MM_XOR((x), (y))), (y)), SHABLK(t)), MM_SET1(K0)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
 #undef _R1
 #define _R1(v,w,x,y,z,t) { \
-	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_xor_si128((w), (x)), (y)), SHABLK(t)), _mm_set1_epi32(K1)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_XOR((w), (x)), (y)), SHABLK(t)), MM_SET1(K1)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
 #undef _R2
 #define _R2(v,w,x,y,z,t) { \
-	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_or_si128(_mm_and_si128(_mm_or_si128((w), (x)), (y)), _mm_and_si128((w), (x))), SHABLK(t)), _mm_set1_epi32(K2)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_OR(MM_AND(MM_OR((w), (x)), (y)), MM_AND((w), (x))), SHABLK(t)), MM_SET1(K2)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
 #undef _R3
 #define _R3(v,w,x,y,z,t) { \
-	z = _mm_add_epi32((z), _mm_add_epi32(_mm_add_epi32(_mm_add_epi32(_mm_xor_si128(_mm_xor_si128((w), (x)), (y)), SHABLK(t)), _mm_set1_epi32(K3)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_XOR((w), (x)), (y)), SHABLK(t)), MM_SET1(K3)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
@@ -1110,11 +1121,11 @@ void sha1hash12byte_sse2(const char *input, __m128i *hash)
 	};
 
 	// SHA-1 initialization constants
-	m_state[0] = _mm_set1_epi32(H0);
-	m_state[1] = _mm_set1_epi32(H1);
-	m_state[2] = _mm_set1_epi32(H2);
-	m_state[3] = _mm_set1_epi32(H3);
-	m_state[4] = _mm_set1_epi32(H4);
+	m_state[0] = MM_SET1(H0);
+	m_state[1] = MM_SET1(H1);
+	m_state[2] = MM_SET1(H2);
+	m_state[3] = MM_SET1(H3);
+	m_state[4] = MM_SET1(H4);
 
 	a = m_state[0];
 	b = m_state[1];
@@ -1126,9 +1137,9 @@ void sha1hash12byte_sse2(const char *input, __m128i *hash)
 		W[i] = _mm_load_si128((__m128i *)&input[16 * i]);
 	}
 
-	W[3] = _mm_set1_epi32(0x80000000);		// padding
+	W[3] = MM_SET1(0x80000000);		// padding
 
-	W[15] = _mm_set1_epi32(12 * 8);		// bits of Message Block (12 bytes * 8 bits)
+	W[15] = MM_SET1(12 * 8);		// bits of Message Block (12 bytes * 8 bits)
 
 	// round 0 to 15
 	_RS0(a, b, c, d, e, W[0]);
@@ -1150,19 +1161,19 @@ void sha1hash12byte_sse2(const char *input, __m128i *hash)
 
 	// round 16 to 19
 	// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
-	W[0] = ROL32(_mm_xor_si128(W[2], W[0]), 1);
+	W[0] = ROL32(MM_XOR(W[2], W[0]), 1);
 	_RS0(e, a, b, c, d, W[0]);
 
 	// (17, W[14]==0, W[9]==0, W[3], W[1])
-	W[1] = ROL32(_mm_xor_si128(W[3], W[1]), 1);
+	W[1] = ROL32(MM_XOR(W[3], W[1]), 1);
 	_RS0(d, e, a, b, c, W[1]);
 
 	// (18, W[15], W[10]==0, W[4]==0, W[2])
-	W[2] = ROL32(_mm_xor_si128(W[15], W[2]), 1);
+	W[2] = ROL32(MM_XOR(W[15], W[2]), 1);
 	_RS0(c, d, e, a, b, W[2]);
 
 	// (19, W[0], W[11]==0, W[5]==0, W[3])
-	W[3] = ROL32(_mm_xor_si128(W[0], W[3]), 1);
+	W[3] = ROL32(MM_XOR(W[0], W[3]), 1);
 	_RS0(b, c, d, e, a, W[3]);
 
 	// round 20 to 31
@@ -1179,39 +1190,39 @@ void sha1hash12byte_sse2(const char *input, __m128i *hash)
 	_RS1(d, e, a, b, c, W[6]);
 
 	// (23, W[4], W[15], W[9]==0, W[7]==0)
-	W[7] = ROL32(_mm_xor_si128(W[4], W[15]), 1);
+	W[7] = ROL32(MM_XOR(W[4], W[15]), 1);
 	_RS1(c, d, e, a, b, W[7]);
 
 	// (24, W[5], W[0], W[10]==0, W[8]==0)
-	W[8] = ROL32(_mm_xor_si128(W[5], W[0]), 1);
+	W[8] = ROL32(MM_XOR(W[5], W[0]), 1);
 	_RS1(b, c, d, e, a, W[8]);
 
 	// (25, W[6], W[1], W[11]==0, W[9]==0)
-	W[9] = ROL32(_mm_xor_si128(W[6], W[1]), 1);
+	W[9] = ROL32(MM_XOR(W[6], W[1]), 1);
 	_RS1(a, b, c, d, e, W[9]);
 
 	// (26, W[7], W[2], W[12]==0, W[10]==0)
-	W[10] = ROL32(_mm_xor_si128(W[7], W[2]), 1);
+	W[10] = ROL32(MM_XOR(W[7], W[2]), 1);
 	_RS1(e, a, b, c, d, W[10]);
 
 	// (27, W[8], W[3], W[13]==0, W[11]==0)
-	W[11] = ROL32(_mm_xor_si128(W[8], W[3]), 1);
+	W[11] = ROL32(MM_XOR(W[8], W[3]), 1);
 	_RS1(d, e, a, b, c, W[11]);
 
 	// (28, W[9], W[4], W[14]==0, W[12]==0)
-	W[12] = ROL32(_mm_xor_si128(W[9], W[4]), 1);
+	W[12] = ROL32(MM_XOR(W[9], W[4]), 1);
 	_RS1(c, d, e, a, b, W[12]);
 
 	// (29, W[10], W[5], W[15], W[13]==0)
-	W[13] = ROL32(_mm_xor_si128(_mm_xor_si128(W[10], W[5]), W[15]), 1);
+	W[13] = ROL32(MM_XOR(MM_XOR(W[10], W[5]), W[15]), 1);
 	_RS1(b, c, d, e, a, W[13]);
 
 	// (30, W[11], W[6], W[0], W[14]==0)
-	W[14] = ROL32(_mm_xor_si128(_mm_xor_si128(W[11], W[6]), W[0]), 1);
+	W[14] = ROL32(MM_XOR(MM_XOR(W[11], W[6]), W[0]), 1);
 	_RS1(a, b, c, d, e, W[14]);
 
 	// (31, W[12], W[7], W[1], W[15])
-	W[15] = ROL32(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(W[12], W[7]), W[1]), W[15]), 1);
+	W[15] = ROL32(MM_XOR(MM_XOR(MM_XOR(W[12], W[7]), W[1]), W[15]), 1);
 	_RS1(e, a, b, c, d, W[15]);
 
 	// round 32 to 39
@@ -1269,11 +1280,11 @@ void sha1hash12byte_sse2(const char *input, __m128i *hash)
 	_R3(b, c, d, e, a, 79);
 
 	// Add the working vars back into state
-	m_state[0] = _mm_add_epi32(m_state[0], a);
-	m_state[1] = _mm_add_epi32(m_state[1], b);
-	m_state[2] = _mm_add_epi32(m_state[2], c);
-	m_state[3] = _mm_add_epi32(m_state[3], d);
-	m_state[4] = _mm_add_epi32(m_state[4], e);
+	m_state[0] = MM_ADD(m_state[0], a);
+	m_state[1] = MM_ADD(m_state[1], b);
+	m_state[2] = MM_ADD(m_state[2], c);
+	m_state[3] = MM_ADD(m_state[3], d);
+	m_state[4] = MM_ADD(m_state[4], e);
 
 	// trip test
 	_mm_store_si128((__m128i *)tmp0, m_state[0]);
@@ -1315,7 +1326,7 @@ void sha1hash12byte_sse2(const char *input, __m128i *hash)
 	}
 
 	for (i = 0; i < 5; i++){
-		hash[i] = _mm_xor_si128(hash[i], m_state[i]);
+		hash[i] = MM_XOR(hash[i], m_state[i]);
 	}
 }
 
@@ -1336,7 +1347,7 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 	};
 
 	for (i = 0; i < 5; i++){
-		m_state[i] = _mm_set1_epi32(prehash[i]);
+		m_state[i] = MM_SET1(prehash[i]);
 	}
 
 	a = m_state[0];
@@ -1349,9 +1360,9 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 		W[i] = _mm_load_si128((__m128i *)&input[4 * i]);
 	}
 
-	W[4] = _mm_set1_epi32(0x80000000);		// padding
+	W[4] = MM_SET1(0x80000000);		// padding
 
-	W[15] = _mm_set1_epi32(80 * 8);		// bits of Message Block (80 bytes * 8 bits)
+	W[15] = MM_SET1(80 * 8);		// bits of Message Block (80 bytes * 8 bits)
 
 	// round 0 to 15
 	_RS0(a, b, c, d, e, W[0]);
@@ -1373,24 +1384,24 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 
 	// round 16 to 19
 	// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
-	W[0] = ROL32(_mm_xor_si128(W[2], W[0]), 1);
+	W[0] = ROL32(MM_XOR(W[2], W[0]), 1);
 	_RS0(e, a, b, c, d, W[0]);
 
 	// (17, W[14]==0, W[9]==0, W[3], W[1])
-	W[1] = ROL32(_mm_xor_si128(W[3], W[1]), 1);
+	W[1] = ROL32(MM_XOR(W[3], W[1]), 1);
 	_RS0(d, e, a, b, c, W[1]);
 
 	// (18, W[15], W[10]==0, W[4], W[2])
-	W[2] = ROL32(_mm_xor_si128(_mm_xor_si128(W[15], W[4]), W[2]), 1);
+	W[2] = ROL32(MM_XOR(MM_XOR(W[15], W[4]), W[2]), 1);
 	_RS0(c, d, e, a, b, W[2]);
 
 	// (19, W[0], W[11]==0, W[5]==0, W[3])
-	W[3] = ROL32(_mm_xor_si128(W[0], W[3]), 1);
+	W[3] = ROL32(MM_XOR(W[0], W[3]), 1);
 	_RS0(b, c, d, e, a, W[3]);
 
 	// round 20 to 31
 	// (20, W[1], W[12]==0, W[6]==0, W[4])
-	W[4] = ROL32(_mm_xor_si128(W[1], W[4]), 1);
+	W[4] = ROL32(MM_XOR(W[1], W[4]), 1);
 	_RS1(a, b, c, d, e, W[4]);
 
 	// (21, W[2], W[13]==0, W[7]==0, W[5]==0)
@@ -1402,39 +1413,39 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 	_RS1(d, e, a, b, c, W[6]);
 
 	// (23, W[4], W[15], W[9]==0, W[7]==0)
-	W[7] = ROL32(_mm_xor_si128(W[4], W[15]), 1);
+	W[7] = ROL32(MM_XOR(W[4], W[15]), 1);
 	_RS1(c, d, e, a, b, W[7]);
 
 	// (24, W[5], W[0], W[10]==0, W[8]==0)
-	W[8] = ROL32(_mm_xor_si128(W[5], W[0]), 1);
+	W[8] = ROL32(MM_XOR(W[5], W[0]), 1);
 	_RS1(b, c, d, e, a, W[8]);
 
 	// (25, W[6], W[1], W[11]==0, W[9]==0)
-	W[9] = ROL32(_mm_xor_si128(W[6], W[1]), 1);
+	W[9] = ROL32(MM_XOR(W[6], W[1]), 1);
 	_RS1(a, b, c, d, e, W[9]);
 
 	// (26, W[7], W[2], W[12]==0, W[10]==0)
-	W[10] = ROL32(_mm_xor_si128(W[7], W[2]), 1);
+	W[10] = ROL32(MM_XOR(W[7], W[2]), 1);
 	_RS1(e, a, b, c, d, W[10]);
 
 	// (27, W[8], W[3], W[13]==0, W[11]==0)
-	W[11] = ROL32(_mm_xor_si128(W[8], W[3]), 1);
+	W[11] = ROL32(MM_XOR(W[8], W[3]), 1);
 	_RS1(d, e, a, b, c, W[11]);
 
 	// (28, W[9], W[4], W[14]==0, W[12]==0)
-	W[12] = ROL32(_mm_xor_si128(W[9], W[4]), 1);
+	W[12] = ROL32(MM_XOR(W[9], W[4]), 1);
 	_RS1(c, d, e, a, b, W[12]);
 
 	// (29, W[10], W[5], W[15], W[13]==0)
-	W[13] = ROL32(_mm_xor_si128(_mm_xor_si128(W[10], W[5]), W[15]), 1);
+	W[13] = ROL32(MM_XOR(MM_XOR(W[10], W[5]), W[15]), 1);
 	_RS1(b, c, d, e, a, W[13]);
 
 	// (30, W[11], W[6], W[0], W[14]==0)
-	W[14] = ROL32(_mm_xor_si128(_mm_xor_si128(W[11], W[6]), W[0]), 1);
+	W[14] = ROL32(MM_XOR(MM_XOR(W[11], W[6]), W[0]), 1);
 	_RS1(a, b, c, d, e, W[14]);
 
 	// (31, W[12], W[7], W[1], W[15])
-	W[15] = ROL32(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(W[12], W[7]), W[1]), W[15]), 1);
+	W[15] = ROL32(MM_XOR(MM_XOR(MM_XOR(W[12], W[7]), W[1]), W[15]), 1);
 	_RS1(e, a, b, c, d, W[15]);
 
 	// round 32 to 39
@@ -1492,11 +1503,11 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 	_R3(b, c, d, e, a, 79);
 
 	// Add the working vars back into state
-	m_state[0] = _mm_add_epi32(m_state[0], a);
-	m_state[1] = _mm_add_epi32(m_state[1], b);
-	m_state[2] = _mm_add_epi32(m_state[2], c);
-	m_state[3] = _mm_add_epi32(m_state[3], d);
-	m_state[4] = _mm_add_epi32(m_state[4], e);
+	m_state[0] = MM_ADD(m_state[0], a);
+	m_state[1] = MM_ADD(m_state[1], b);
+	m_state[2] = MM_ADD(m_state[2], c);
+	m_state[3] = MM_ADD(m_state[3], d);
+	m_state[4] = MM_ADD(m_state[4], e);
 
 	// Base64 encode
 #define _B64TL4(i) { \
@@ -1507,107 +1518,107 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 }
 
 	// str[0] = b64t[hash[0] >> 26];
-	_mm_store_si128((__m128i *)tmp, _mm_srli_epi32(m_state[0], 26));
+	_mm_store_si128((__m128i *)tmp, MM_SRLI(m_state[0], 26));
 	_B64TL4(0);
 
 	// str[1] = b64t[(hash[0] >> 20) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[0], 20), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[0], 20), MM_SET1(63)));
 	_B64TL4(1);
 
 	// str[2] = b64t[(hash[0] >> 14) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[0], 14), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[0], 14), MM_SET1(63)));
 	_B64TL4(2);
 
 	// str[3] = b64t[(hash[0] >> 8) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[0], 8), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[0], 8), MM_SET1(63)));
 	_B64TL4(3);
 
 	// str[4] = b64t[(hash[0] >> 2) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[0], 2), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[0], 2), MM_SET1(63)));
 	_B64TL4(4);
 
 	// str[5] = b64t[(hash[0] << 4 | hash[1] >> 28) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_or_si128(_mm_slli_epi32(m_state[0], 4), _mm_srli_epi32(m_state[1], 28)), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_OR(MM_SLLI(m_state[0], 4), MM_SRLI(m_state[1], 28)), MM_SET1(63)));
 	_B64TL4(5);
 
 	// str[6] = b64t[(hash[1] >> 22) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[1], 22), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[1], 22), MM_SET1(63)));
 	_B64TL4(6);
 
 	// str[7] = b64t[(hash[1] >> 16) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[1], 16), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[1], 16), MM_SET1(63)));
 	_B64TL4(7);
 
 	// str[8] = b64t[(hash[1] >> 10) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[1], 10), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[1], 10), MM_SET1(63)));
 	_B64TL4(8);
 
 	// str[9] = b64t[(hash[1] >> 4) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[1], 4), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[1], 4), MM_SET1(63)));
 	_B64TL4(9);
 
 	// str[10] = b64t[(hash[1] << 2 | hash[2] >> 30) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_or_si128(_mm_slli_epi32(m_state[1], 2), _mm_srli_epi32(m_state[2], 30)), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_OR(MM_SLLI(m_state[1], 2), MM_SRLI(m_state[2], 30)), MM_SET1(63)));
 	_B64TL4(10);
 
 	// str[11] = b64t[(hash[2] >> 24) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[2], 24), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[2], 24), MM_SET1(63)));
 	_B64TL4(11);
 
 	// str[12] = b64t[(hash[2] >> 18) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[2], 18), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[2], 18), MM_SET1(63)));
 	_B64TL4(12);
 
 	// str[13] = b64t[(hash[2] >> 12) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[2], 12), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[2], 12), MM_SET1(63)));
 	_B64TL4(13);
 
 	// str[14] = b64t[(hash[2] >> 6) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[2], 6), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[2], 6), MM_SET1(63)));
 	_B64TL4(14);
 
 	// str[15] = b64t[hash[2] & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(m_state[2], _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(m_state[2], MM_SET1(63)));
 	_B64TL4(15);
 
 	// str[16] = b64t[hash[3] >> 26];
-	_mm_store_si128((__m128i *)tmp, _mm_srli_epi32(m_state[3], 26));
+	_mm_store_si128((__m128i *)tmp, MM_SRLI(m_state[3], 26));
 	_B64TL4(16);
 
 	// str[17] = b64t[(hash[3] >> 20) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[3], 20), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[3], 20), MM_SET1(63)));
 	_B64TL4(17);
 
 	// str[18] = b64t[(hash[3] >> 14) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[3], 14), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[3], 14), MM_SET1(63)));
 	_B64TL4(18);
 
 	// str[19] = b64t[(hash[3] >> 8) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[3], 8), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[3], 8), MM_SET1(63)));
 	_B64TL4(19);
 
 	// str[20] = b64t[(hash[3] >> 2) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[3], 2), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[3], 2), MM_SET1(63)));
 	_B64TL4(20);
 
 	// str[21] = b64t[(hash[3] << 4 | hash[4] >> 28) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_or_si128(_mm_slli_epi32(m_state[3], 4), _mm_srli_epi32(m_state[4], 28)), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_OR(MM_SLLI(m_state[3], 4), MM_SRLI(m_state[4], 28)), MM_SET1(63)));
 	_B64TL4(21);
 
 	// str[22] = b64t[(hash[4] >> 22) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[4], 22), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[4], 22), MM_SET1(63)));
 	_B64TL4(22);
 
 	// str[23] = b64t[(hash[4] >> 16) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[4], 16), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[4], 16), MM_SET1(63)));
 	_B64TL4(23);
 
 	// str[24] = b64t[(hash[4] >> 10) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[4], 10), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[4], 10), MM_SET1(63)));
 	_B64TL4(24);
 
 	// str[25] = b64t[(hash[4] >> 4) & 63];
-	_mm_store_si128((__m128i *)tmp, _mm_and_si128(_mm_srli_epi32(m_state[4], 4), _mm_set1_epi32(63)));
+	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[4], 4), MM_SET1(63)));
 	_B64TL4(25);
 
 #undef _B64TL4
