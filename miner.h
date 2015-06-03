@@ -164,6 +164,10 @@ extern void quarkhash(void *state, const void *input);
 #define USE_SHA1_SSE2 1
 #endif
 
+#ifdef __AVX2__
+#define USE_SHA1_AVX2 1
+#endif
+
 #ifdef USE_SHA1_OPT
 extern uint32_t trip_target_uint;
 extern FILE *fp_trip;

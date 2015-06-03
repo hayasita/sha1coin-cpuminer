@@ -12,6 +12,10 @@
 #include <emmintrin.h>
 #endif
 
+#ifdef USE_SHA1_AVX2
+#include <immintrin.h>
+#endif
+
 
 // constants and initial values defined in SHA-1
 #define K0 0x5A827999
@@ -1055,6 +1059,9 @@ void sha1hash12byte_opt(const char *input, uint32_t *hash)
 
 #define MM_SET1(a) _mm_set1_epi32((a))
 
+#define MM_LOAD(a) _mm_load_si128((__m128i *)(a))
+#define MM_STORE(a, b) _mm_store_si128((__m128i *)(a), (b))
+
 #undef ROL32
 #define ROL32(_val32, _nBits) (MM_OR(MM_SLLI((_val32), (_nBits)), MM_SRLI((_val32), 32-(_nBits))))
 
@@ -1134,7 +1141,7 @@ void sha1hash12byte_sse2(const char *input, __m128i *hash)
 	e = m_state[4];
 
 	for (i = 0; i < 3; i++){
-		W[i] = _mm_load_si128((__m128i *)&input[16 * i]);
+		W[i] = MM_LOAD(&input[16 * i]);
 	}
 
 	W[3] = MM_SET1(0x80000000);		// padding
@@ -1287,12 +1294,12 @@ void sha1hash12byte_sse2(const char *input, __m128i *hash)
 	m_state[4] = MM_ADD(m_state[4], e);
 
 	// trip test
-	_mm_store_si128((__m128i *)tmp0, m_state[0]);
+	MM_STORE(tmp0, m_state[0]);
 
 	for (i = 0; i < 4; i++){
 		if (tmp0[i] >> 2 == trip_target_uint){
-			_mm_store_si128((__m128i *)tmp1, m_state[1]);
-			_mm_store_si128((__m128i *)tmp2, m_state[2]);
+			MM_STORE(tmp1, m_state[1]);
+			MM_STORE(tmp2, m_state[2]);
 
 			trip[0] = trip64t[tmp0[i] >> 26];
 			trip[1] = trip64t[(tmp0[i] >> 20) & 63];
@@ -1357,7 +1364,7 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 	e = m_state[4];
 
 	for (i = 0; i < 4; i++){
-		W[i] = _mm_load_si128((__m128i *)&input[4 * i]);
+		W[i] = MM_LOAD(&input[4 * i]);
 	}
 
 	W[4] = MM_SET1(0x80000000);		// padding
@@ -1510,7 +1517,7 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 	m_state[4] = MM_ADD(m_state[4], e);
 
 	// Base64 encode
-#define _B64TL4(i) { \
+#define _B64TL(i) { \
 	str[(i)] = b64t[tmp[0]]; \
 	str[(i)+48*1] = b64t[tmp[1]]; \
 	str[(i)+48*2] = b64t[tmp[2]]; \
@@ -1518,110 +1525,110 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 }
 
 	// str[0] = b64t[hash[0] >> 26];
-	_mm_store_si128((__m128i *)tmp, MM_SRLI(m_state[0], 26));
-	_B64TL4(0);
+	MM_STORE(tmp, MM_SRLI(m_state[0], 26));
+	_B64TL(0);
 
 	// str[1] = b64t[(hash[0] >> 20) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[0], 20), MM_SET1(63)));
-	_B64TL4(1);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[0], 20), MM_SET1(63)));
+	_B64TL(1);
 
 	// str[2] = b64t[(hash[0] >> 14) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[0], 14), MM_SET1(63)));
-	_B64TL4(2);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[0], 14), MM_SET1(63)));
+	_B64TL(2);
 
 	// str[3] = b64t[(hash[0] >> 8) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[0], 8), MM_SET1(63)));
-	_B64TL4(3);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[0], 8), MM_SET1(63)));
+	_B64TL(3);
 
 	// str[4] = b64t[(hash[0] >> 2) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[0], 2), MM_SET1(63)));
-	_B64TL4(4);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[0], 2), MM_SET1(63)));
+	_B64TL(4);
 
 	// str[5] = b64t[(hash[0] << 4 | hash[1] >> 28) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_OR(MM_SLLI(m_state[0], 4), MM_SRLI(m_state[1], 28)), MM_SET1(63)));
-	_B64TL4(5);
+	MM_STORE(tmp, MM_AND(MM_OR(MM_SLLI(m_state[0], 4), MM_SRLI(m_state[1], 28)), MM_SET1(63)));
+	_B64TL(5);
 
 	// str[6] = b64t[(hash[1] >> 22) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[1], 22), MM_SET1(63)));
-	_B64TL4(6);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[1], 22), MM_SET1(63)));
+	_B64TL(6);
 
 	// str[7] = b64t[(hash[1] >> 16) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[1], 16), MM_SET1(63)));
-	_B64TL4(7);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[1], 16), MM_SET1(63)));
+	_B64TL(7);
 
 	// str[8] = b64t[(hash[1] >> 10) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[1], 10), MM_SET1(63)));
-	_B64TL4(8);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[1], 10), MM_SET1(63)));
+	_B64TL(8);
 
 	// str[9] = b64t[(hash[1] >> 4) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[1], 4), MM_SET1(63)));
-	_B64TL4(9);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[1], 4), MM_SET1(63)));
+	_B64TL(9);
 
 	// str[10] = b64t[(hash[1] << 2 | hash[2] >> 30) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_OR(MM_SLLI(m_state[1], 2), MM_SRLI(m_state[2], 30)), MM_SET1(63)));
-	_B64TL4(10);
+	MM_STORE(tmp, MM_AND(MM_OR(MM_SLLI(m_state[1], 2), MM_SRLI(m_state[2], 30)), MM_SET1(63)));
+	_B64TL(10);
 
 	// str[11] = b64t[(hash[2] >> 24) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[2], 24), MM_SET1(63)));
-	_B64TL4(11);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[2], 24), MM_SET1(63)));
+	_B64TL(11);
 
 	// str[12] = b64t[(hash[2] >> 18) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[2], 18), MM_SET1(63)));
-	_B64TL4(12);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[2], 18), MM_SET1(63)));
+	_B64TL(12);
 
 	// str[13] = b64t[(hash[2] >> 12) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[2], 12), MM_SET1(63)));
-	_B64TL4(13);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[2], 12), MM_SET1(63)));
+	_B64TL(13);
 
 	// str[14] = b64t[(hash[2] >> 6) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[2], 6), MM_SET1(63)));
-	_B64TL4(14);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[2], 6), MM_SET1(63)));
+	_B64TL(14);
 
 	// str[15] = b64t[hash[2] & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(m_state[2], MM_SET1(63)));
-	_B64TL4(15);
+	MM_STORE(tmp, MM_AND(m_state[2], MM_SET1(63)));
+	_B64TL(15);
 
 	// str[16] = b64t[hash[3] >> 26];
-	_mm_store_si128((__m128i *)tmp, MM_SRLI(m_state[3], 26));
-	_B64TL4(16);
+	MM_STORE(tmp, MM_SRLI(m_state[3], 26));
+	_B64TL(16);
 
 	// str[17] = b64t[(hash[3] >> 20) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[3], 20), MM_SET1(63)));
-	_B64TL4(17);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[3], 20), MM_SET1(63)));
+	_B64TL(17);
 
 	// str[18] = b64t[(hash[3] >> 14) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[3], 14), MM_SET1(63)));
-	_B64TL4(18);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[3], 14), MM_SET1(63)));
+	_B64TL(18);
 
 	// str[19] = b64t[(hash[3] >> 8) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[3], 8), MM_SET1(63)));
-	_B64TL4(19);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[3], 8), MM_SET1(63)));
+	_B64TL(19);
 
 	// str[20] = b64t[(hash[3] >> 2) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[3], 2), MM_SET1(63)));
-	_B64TL4(20);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[3], 2), MM_SET1(63)));
+	_B64TL(20);
 
 	// str[21] = b64t[(hash[3] << 4 | hash[4] >> 28) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_OR(MM_SLLI(m_state[3], 4), MM_SRLI(m_state[4], 28)), MM_SET1(63)));
-	_B64TL4(21);
+	MM_STORE(tmp, MM_AND(MM_OR(MM_SLLI(m_state[3], 4), MM_SRLI(m_state[4], 28)), MM_SET1(63)));
+	_B64TL(21);
 
 	// str[22] = b64t[(hash[4] >> 22) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[4], 22), MM_SET1(63)));
-	_B64TL4(22);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[4], 22), MM_SET1(63)));
+	_B64TL(22);
 
 	// str[23] = b64t[(hash[4] >> 16) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[4], 16), MM_SET1(63)));
-	_B64TL4(23);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[4], 16), MM_SET1(63)));
+	_B64TL(23);
 
 	// str[24] = b64t[(hash[4] >> 10) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[4], 10), MM_SET1(63)));
-	_B64TL4(24);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[4], 10), MM_SET1(63)));
+	_B64TL(24);
 
 	// str[25] = b64t[(hash[4] >> 4) & 63];
-	_mm_store_si128((__m128i *)tmp, MM_AND(MM_SRLI(m_state[4], 4), MM_SET1(63)));
-	_B64TL4(25);
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[4], 4), MM_SET1(63)));
+	_B64TL(25);
 
-#undef _B64TL4
+#undef _B64TL
 
 	for (i = 0; i < 4; i++){
 		memcpy(str + 26 + 48 * i, str + 48 * i, 11);
@@ -1629,6 +1636,609 @@ void sha1hash80byte_2nd_sse2(const uint32_t *input, const uint32_t *prehash, cha
 }
 
 #endif	// USE_SHA1_SSE2	//////////////////////////////////////////////////
+
+
+#ifdef USE_SHA1_AVX2	//////////////////////////////////////////////////
+
+#undef MM_OR
+#define MM_OR(a, b) _mm256_or_si256((a), (b))
+#undef MM_AND
+#define MM_AND(a, b) _mm256_and_si256((a), (b))
+#undef MM_XOR
+#define MM_XOR(a, b) _mm256_xor_si256((a), (b))
+#undef MM_ADD
+#define MM_ADD(a, b) _mm256_add_epi32((a), (b))
+
+#undef MM_SLLI
+#define MM_SLLI(a, b) _mm256_slli_epi32((a), (b))
+#undef MM_SRLI
+#define MM_SRLI(a, b) _mm256_srli_epi32((a), (b))
+
+#undef MM_SET1
+#define MM_SET1(a) _mm256_set1_epi32((a))
+
+#undef MM_LOAD
+#define MM_LOAD(a) _mm256_load_si256((__m256i *)(a))
+#undef MM_STORE
+#define MM_STORE(a, b) _mm256_store_si256((__m256i *)(a), (b))
+
+#undef ROL32
+#define ROL32(_val32, _nBits) (MM_OR(MM_SLLI((_val32), (_nBits)), MM_SRLI((_val32), 32-(_nBits))))
+
+#undef SHABLK
+#define SHABLK(t) (W[(t)&15] = ROL32(MM_XOR(MM_XOR(MM_XOR(W[((t)+13)&15], W[((t)+8)&15]), W[((t)+2)&15]), W[(t)&15]), 1))
+
+#undef _RS0
+#define _RS0(v,w,x,y,z,i) { \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_AND((w), MM_XOR((x), (y))), (y)), (i)), MM_SET1(K0)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _RS00
+#define _RS00(v,w,x,y,z) { \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_XOR(MM_AND((w), MM_XOR((x), (y))), (y)), MM_SET1(K0)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _RS1
+#define _RS1(v,w,x,y,z,i) { \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_XOR((w), (x)), (y)), (i)), MM_SET1(K1)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _R0
+#define _R0(v,w,x,y,z,t) { \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_AND((w), MM_XOR((x), (y))), (y)), SHABLK(t)), MM_SET1(K0)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _R1
+#define _R1(v,w,x,y,z,t) { \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_XOR((w), (x)), (y)), SHABLK(t)), MM_SET1(K1)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _R2
+#define _R2(v,w,x,y,z,t) { \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_OR(MM_AND(MM_OR((w), (x)), (y)), MM_AND((w), (x))), SHABLK(t)), MM_SET1(K2)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+#undef _R3
+#define _R3(v,w,x,y,z,t) { \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_XOR((w), (x)), (y)), SHABLK(t)), MM_SET1(K3)), ROL32(v,5))); \
+	w = ROL32(w, 30); \
+}
+
+
+void sha1hash12byte_avx2(const char *input, __m256i *hash)
+{
+	__attribute__((aligned(32))) __m256i W[16];
+	__attribute__((aligned(32))) __m256i a, b, c, d, e;
+	__attribute__((aligned(32))) __m256i m_state[5];
+	int i, j;
+	char trip[13], tripkey[13];
+	__attribute__((aligned(32))) uint32_t tmp0[8], tmp1[8], tmp2[8];
+
+	const char trip64t[] = {
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+		'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+		'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+		'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '/'
+	};
+
+	// SHA-1 initialization constants
+	m_state[0] = MM_SET1(H0);
+	m_state[1] = MM_SET1(H1);
+	m_state[2] = MM_SET1(H2);
+	m_state[3] = MM_SET1(H3);
+	m_state[4] = MM_SET1(H4);
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	for (i = 0; i < 3; i++){
+		W[i] = MM_LOAD(&input[32 * i]);
+	}
+
+	W[3] = MM_SET1(0x80000000);		// padding
+
+	W[15] = MM_SET1(12 * 8);		// bits of Message Block (12 bytes * 8 bits)
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS00(b, c, d, e, a);		// W[4] == 0
+	_RS00(a, b, c, d, e);		// W[5] == 0
+	_RS00(e, a, b, c, d);		// W[6] == 0
+	_RS00(d, e, a, b, c);		// W[7] == 0
+	_RS00(c, d, e, a, b);		// W[8] == 0
+	_RS00(b, c, d, e, a);		// W[9] == 0
+	_RS00(a, b, c, d, e);		// W[10] == 0
+	_RS00(e, a, b, c, d);		// W[11] == 0
+	_RS00(d, e, a, b, c);		// W[12] == 0
+	_RS00(c, d, e, a, b);		// W[13] == 0
+	_RS00(b, c, d, e, a);		// W[14] == 0
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
+	W[0] = ROL32(MM_XOR(W[2], W[0]), 1);
+	_RS0(e, a, b, c, d, W[0]);
+
+	// (17, W[14]==0, W[9]==0, W[3], W[1])
+	W[1] = ROL32(MM_XOR(W[3], W[1]), 1);
+	_RS0(d, e, a, b, c, W[1]);
+
+	// (18, W[15], W[10]==0, W[4]==0, W[2])
+	W[2] = ROL32(MM_XOR(W[15], W[2]), 1);
+	_RS0(c, d, e, a, b, W[2]);
+
+	// (19, W[0], W[11]==0, W[5]==0, W[3])
+	W[3] = ROL32(MM_XOR(W[0], W[3]), 1);
+	_RS0(b, c, d, e, a, W[3]);
+
+	// round 20 to 31
+	// (20, W[1], W[12]==0, W[6]==0, W[4]==0)
+	W[4] = ROL32(W[1], 1);
+	_RS1(a, b, c, d, e, W[4]);
+
+	// (21, W[2], W[13]==0, W[7]==0, W[5]==0)
+	W[5] = ROL32(W[2], 1);
+	_RS1(e, a, b, c, d, W[5]);
+
+	// (22, W[3], W[14]==0, W[8]==0, W[6]==0)
+	W[6] = ROL32(W[3], 1);
+	_RS1(d, e, a, b, c, W[6]);
+
+	// (23, W[4], W[15], W[9]==0, W[7]==0)
+	W[7] = ROL32(MM_XOR(W[4], W[15]), 1);
+	_RS1(c, d, e, a, b, W[7]);
+
+	// (24, W[5], W[0], W[10]==0, W[8]==0)
+	W[8] = ROL32(MM_XOR(W[5], W[0]), 1);
+	_RS1(b, c, d, e, a, W[8]);
+
+	// (25, W[6], W[1], W[11]==0, W[9]==0)
+	W[9] = ROL32(MM_XOR(W[6], W[1]), 1);
+	_RS1(a, b, c, d, e, W[9]);
+
+	// (26, W[7], W[2], W[12]==0, W[10]==0)
+	W[10] = ROL32(MM_XOR(W[7], W[2]), 1);
+	_RS1(e, a, b, c, d, W[10]);
+
+	// (27, W[8], W[3], W[13]==0, W[11]==0)
+	W[11] = ROL32(MM_XOR(W[8], W[3]), 1);
+	_RS1(d, e, a, b, c, W[11]);
+
+	// (28, W[9], W[4], W[14]==0, W[12]==0)
+	W[12] = ROL32(MM_XOR(W[9], W[4]), 1);
+	_RS1(c, d, e, a, b, W[12]);
+
+	// (29, W[10], W[5], W[15], W[13]==0)
+	W[13] = ROL32(MM_XOR(MM_XOR(W[10], W[5]), W[15]), 1);
+	_RS1(b, c, d, e, a, W[13]);
+
+	// (30, W[11], W[6], W[0], W[14]==0)
+	W[14] = ROL32(MM_XOR(MM_XOR(W[11], W[6]), W[0]), 1);
+	_RS1(a, b, c, d, e, W[14]);
+
+	// (31, W[12], W[7], W[1], W[15])
+	W[15] = ROL32(MM_XOR(MM_XOR(MM_XOR(W[12], W[7]), W[1]), W[15]), 1);
+	_RS1(e, a, b, c, d, W[15]);
+
+	// round 32 to 39
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] = MM_ADD(m_state[0], a);
+	m_state[1] = MM_ADD(m_state[1], b);
+	m_state[2] = MM_ADD(m_state[2], c);
+	m_state[3] = MM_ADD(m_state[3], d);
+	m_state[4] = MM_ADD(m_state[4], e);
+
+	// trip test
+	MM_STORE(tmp0, m_state[0]);
+
+	for (i = 0; i < 8; i++){
+		if (tmp0[i] >> 2 == trip_target_uint){
+			MM_STORE(tmp1, m_state[1]);
+			MM_STORE(tmp2, m_state[2]);
+
+			trip[0] = trip64t[tmp0[i] >> 26];
+			trip[1] = trip64t[(tmp0[i] >> 20) & 63];
+			trip[2] = trip64t[(tmp0[i] >> 14) & 63];
+			trip[3] = trip64t[(tmp0[i] >> 8) & 63];
+			trip[4] = trip64t[(tmp0[i] >> 2) & 63];
+			trip[5] = trip64t[(tmp0[i] << 4 | tmp1[i] >> 28) & 63];
+			trip[6] = trip64t[(tmp1[i] >> 22) & 63];
+			trip[7] = trip64t[(tmp1[i] >> 16) & 63];
+			trip[8] = trip64t[(tmp1[i] >> 10) & 63];
+			trip[9] = trip64t[(tmp1[i] >> 4) & 63];
+			trip[10] = trip64t[(tmp1[i] << 2 | tmp2[i] >> 30) & 63];
+			trip[11] = trip64t[(tmp2[i] >> 24) & 63];
+			trip[12] = 0;
+
+			if (! strncmp(opt_findtrip, trip, strlen(opt_findtrip))){
+				for (j = 0; j < 3; j++){
+					tripkey[0 + 4 * j] = input[3 + 32 * j + 4 * i];
+					tripkey[1 + 4 * j] = input[2 + 32 * j + 4 * i];
+					tripkey[2 + 4 * j] = input[1 + 32 * j + 4 * i];
+					tripkey[3 + 4 * j] = input[0 + 32 * j + 4 * i];
+				}
+				tripkey[12] = 0;
+
+				applog(LOG_INFO, "tripkey: #%s, trip: %s (yay!!!)", tripkey, trip);
+
+				fprintf(fp_trip, "%s\t#%s\n", trip, tripkey);
+				fflush(fp_trip);
+			}
+		}
+	}
+
+	for (i = 0; i < 5; i++){
+		hash[i] = MM_XOR(hash[i], m_state[i]);
+	}
+}
+
+void sha1hash80byte_2nd_avx2(const uint32_t *input, const uint32_t *prehash, char *str)
+{
+	__attribute__((aligned(32))) __m256i W[16];
+	__attribute__((aligned(32))) __m256i a, b, c, d, e;
+	__attribute__((aligned(32))) __m256i m_state[5];
+	int i;
+	__attribute__((aligned(32))) uint32_t tmp[8];
+
+	const char b64t[] = {
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+		'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+		'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+		'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'
+	};
+
+	for (i = 0; i < 5; i++){
+		m_state[i] = MM_SET1(prehash[i]);
+	}
+
+	a = m_state[0];
+	b = m_state[1];
+	c = m_state[2];
+	d = m_state[3];
+	e = m_state[4];
+
+	for (i = 0; i < 4; i++){
+		W[i] = MM_LOAD(&input[8 * i]);
+	}
+
+	W[4] = MM_SET1(0x80000000);		// padding
+
+	W[15] = MM_SET1(80 * 8);		// bits of Message Block (80 bytes * 8 bits)
+
+	// round 0 to 15
+	_RS0(a, b, c, d, e, W[0]);
+	_RS0(e, a, b, c, d, W[1]);
+	_RS0(d, e, a, b, c, W[2]);
+	_RS0(c, d, e, a, b, W[3]);
+	_RS0(b, c, d, e, a, W[4]);
+	_RS00(a, b, c, d, e);		// W[5] == 0
+	_RS00(e, a, b, c, d);		// W[6] == 0
+	_RS00(d, e, a, b, c);		// W[7] == 0
+	_RS00(c, d, e, a, b);		// W[8] == 0
+	_RS00(b, c, d, e, a);		// W[9] == 0
+	_RS00(a, b, c, d, e);		// W[10] == 0
+	_RS00(e, a, b, c, d);		// W[11] == 0
+	_RS00(d, e, a, b, c);		// W[12] == 0
+	_RS00(c, d, e, a, b);		// W[13] == 0
+	_RS00(b, c, d, e, a);		// W[14] == 0
+	_RS0(a, b, c, d, e, W[15]);
+
+	// round 16 to 19
+	// (t, W[t-3], W[t-8], W[t-14], W[t-16]) = (16, W[13]==0, W[8]==0, W[2], W[0])
+	W[0] = ROL32(MM_XOR(W[2], W[0]), 1);
+	_RS0(e, a, b, c, d, W[0]);
+
+	// (17, W[14]==0, W[9]==0, W[3], W[1])
+	W[1] = ROL32(MM_XOR(W[3], W[1]), 1);
+	_RS0(d, e, a, b, c, W[1]);
+
+	// (18, W[15], W[10]==0, W[4], W[2])
+	W[2] = ROL32(MM_XOR(MM_XOR(W[15], W[4]), W[2]), 1);
+	_RS0(c, d, e, a, b, W[2]);
+
+	// (19, W[0], W[11]==0, W[5]==0, W[3])
+	W[3] = ROL32(MM_XOR(W[0], W[3]), 1);
+	_RS0(b, c, d, e, a, W[3]);
+
+	// round 20 to 31
+	// (20, W[1], W[12]==0, W[6]==0, W[4])
+	W[4] = ROL32(MM_XOR(W[1], W[4]), 1);
+	_RS1(a, b, c, d, e, W[4]);
+
+	// (21, W[2], W[13]==0, W[7]==0, W[5]==0)
+	W[5] = ROL32(W[2], 1);
+	_RS1(e, a, b, c, d, W[5]);
+
+	// (22, W[3], W[14]==0, W[8]==0, W[6]==0)
+	W[6] = ROL32(W[3], 1);
+	_RS1(d, e, a, b, c, W[6]);
+
+	// (23, W[4], W[15], W[9]==0, W[7]==0)
+	W[7] = ROL32(MM_XOR(W[4], W[15]), 1);
+	_RS1(c, d, e, a, b, W[7]);
+
+	// (24, W[5], W[0], W[10]==0, W[8]==0)
+	W[8] = ROL32(MM_XOR(W[5], W[0]), 1);
+	_RS1(b, c, d, e, a, W[8]);
+
+	// (25, W[6], W[1], W[11]==0, W[9]==0)
+	W[9] = ROL32(MM_XOR(W[6], W[1]), 1);
+	_RS1(a, b, c, d, e, W[9]);
+
+	// (26, W[7], W[2], W[12]==0, W[10]==0)
+	W[10] = ROL32(MM_XOR(W[7], W[2]), 1);
+	_RS1(e, a, b, c, d, W[10]);
+
+	// (27, W[8], W[3], W[13]==0, W[11]==0)
+	W[11] = ROL32(MM_XOR(W[8], W[3]), 1);
+	_RS1(d, e, a, b, c, W[11]);
+
+	// (28, W[9], W[4], W[14]==0, W[12]==0)
+	W[12] = ROL32(MM_XOR(W[9], W[4]), 1);
+	_RS1(c, d, e, a, b, W[12]);
+
+	// (29, W[10], W[5], W[15], W[13]==0)
+	W[13] = ROL32(MM_XOR(MM_XOR(W[10], W[5]), W[15]), 1);
+	_RS1(b, c, d, e, a, W[13]);
+
+	// (30, W[11], W[6], W[0], W[14]==0)
+	W[14] = ROL32(MM_XOR(MM_XOR(W[11], W[6]), W[0]), 1);
+	_RS1(a, b, c, d, e, W[14]);
+
+	// (31, W[12], W[7], W[1], W[15])
+	W[15] = ROL32(MM_XOR(MM_XOR(MM_XOR(W[12], W[7]), W[1]), W[15]), 1);
+	_RS1(e, a, b, c, d, W[15]);
+
+	// round 32 to 39
+	_R1(d, e, a, b, c, 32);
+	_R1(c, d, e, a, b, 33);
+	_R1(b, c, d, e, a, 34);
+	_R1(a, b, c, d, e, 35);
+	_R1(e, a, b, c, d, 36);
+	_R1(d, e, a, b, c, 37);
+	_R1(c, d, e, a, b, 38);
+	_R1(b, c, d, e, a, 39);
+
+	// round 40 to 59
+	_R2(a, b, c, d, e, 40);
+	_R2(e, a, b, c, d, 41);
+	_R2(d, e, a, b, c, 42);
+	_R2(c, d, e, a, b, 43);
+	_R2(b, c, d, e, a, 44);
+	_R2(a, b, c, d, e, 45);
+	_R2(e, a, b, c, d, 46);
+	_R2(d, e, a, b, c, 47);
+	_R2(c, d, e, a, b, 48);
+	_R2(b, c, d, e, a, 49);
+	_R2(a, b, c, d, e, 50);
+	_R2(e, a, b, c, d, 51);
+	_R2(d, e, a, b, c, 52);
+	_R2(c, d, e, a, b, 53);
+	_R2(b, c, d, e, a, 54);
+	_R2(a, b, c, d, e, 55);
+	_R2(e, a, b, c, d, 56);
+	_R2(d, e, a, b, c, 57);
+	_R2(c, d, e, a, b, 58);
+	_R2(b, c, d, e, a, 59);
+
+	// round 60 to 79
+	_R3(a, b, c, d, e, 60);
+	_R3(e, a, b, c, d, 61);
+	_R3(d, e, a, b, c, 62);
+	_R3(c, d, e, a, b, 63);
+	_R3(b, c, d, e, a, 64);
+	_R3(a, b, c, d, e, 65);
+	_R3(e, a, b, c, d, 66);
+	_R3(d, e, a, b, c, 67);
+	_R3(c, d, e, a, b, 68);
+	_R3(b, c, d, e, a, 69);
+	_R3(a, b, c, d, e, 70);
+	_R3(e, a, b, c, d, 71);
+	_R3(d, e, a, b, c, 72);
+	_R3(c, d, e, a, b, 73);
+	_R3(b, c, d, e, a, 74);
+	_R3(a, b, c, d, e, 75);
+	_R3(e, a, b, c, d, 76);
+	_R3(d, e, a, b, c, 77);
+	_R3(c, d, e, a, b, 78);
+	_R3(b, c, d, e, a, 79);
+
+	// Add the working vars back into state
+	m_state[0] = MM_ADD(m_state[0], a);
+	m_state[1] = MM_ADD(m_state[1], b);
+	m_state[2] = MM_ADD(m_state[2], c);
+	m_state[3] = MM_ADD(m_state[3], d);
+	m_state[4] = MM_ADD(m_state[4], e);
+
+	// Base64 encode
+#define _B64TL(i) { \
+	str[(i)] = b64t[tmp[0]]; \
+	str[(i)+48*1] = b64t[tmp[1]]; \
+	str[(i)+48*2] = b64t[tmp[2]]; \
+	str[(i)+48*3] = b64t[tmp[3]]; \
+	str[(i)+48*4] = b64t[tmp[4]]; \
+	str[(i)+48*5] = b64t[tmp[5]]; \
+	str[(i)+48*6] = b64t[tmp[6]]; \
+	str[(i)+48*7] = b64t[tmp[7]]; \
+}
+
+	// str[0] = b64t[hash[0] >> 26];
+	MM_STORE(tmp, MM_SRLI(m_state[0], 26));
+	_B64TL(0);
+
+	// str[1] = b64t[(hash[0] >> 20) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[0], 20), MM_SET1(63)));
+	_B64TL(1);
+
+	// str[2] = b64t[(hash[0] >> 14) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[0], 14), MM_SET1(63)));
+	_B64TL(2);
+
+	// str[3] = b64t[(hash[0] >> 8) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[0], 8), MM_SET1(63)));
+	_B64TL(3);
+
+	// str[4] = b64t[(hash[0] >> 2) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[0], 2), MM_SET1(63)));
+	_B64TL(4);
+
+	// str[5] = b64t[(hash[0] << 4 | hash[1] >> 28) & 63];
+	MM_STORE(tmp, MM_AND(MM_OR(MM_SLLI(m_state[0], 4), MM_SRLI(m_state[1], 28)), MM_SET1(63)));
+	_B64TL(5);
+
+	// str[6] = b64t[(hash[1] >> 22) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[1], 22), MM_SET1(63)));
+	_B64TL(6);
+
+	// str[7] = b64t[(hash[1] >> 16) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[1], 16), MM_SET1(63)));
+	_B64TL(7);
+
+	// str[8] = b64t[(hash[1] >> 10) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[1], 10), MM_SET1(63)));
+	_B64TL(8);
+
+	// str[9] = b64t[(hash[1] >> 4) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[1], 4), MM_SET1(63)));
+	_B64TL(9);
+
+	// str[10] = b64t[(hash[1] << 2 | hash[2] >> 30) & 63];
+	MM_STORE(tmp, MM_AND(MM_OR(MM_SLLI(m_state[1], 2), MM_SRLI(m_state[2], 30)), MM_SET1(63)));
+	_B64TL(10);
+
+	// str[11] = b64t[(hash[2] >> 24) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[2], 24), MM_SET1(63)));
+	_B64TL(11);
+
+	// str[12] = b64t[(hash[2] >> 18) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[2], 18), MM_SET1(63)));
+	_B64TL(12);
+
+	// str[13] = b64t[(hash[2] >> 12) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[2], 12), MM_SET1(63)));
+	_B64TL(13);
+
+	// str[14] = b64t[(hash[2] >> 6) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[2], 6), MM_SET1(63)));
+	_B64TL(14);
+
+	// str[15] = b64t[hash[2] & 63];
+	MM_STORE(tmp, MM_AND(m_state[2], MM_SET1(63)));
+	_B64TL(15);
+
+	// str[16] = b64t[hash[3] >> 26];
+	MM_STORE(tmp, MM_SRLI(m_state[3], 26));
+	_B64TL(16);
+
+	// str[17] = b64t[(hash[3] >> 20) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[3], 20), MM_SET1(63)));
+	_B64TL(17);
+
+	// str[18] = b64t[(hash[3] >> 14) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[3], 14), MM_SET1(63)));
+	_B64TL(18);
+
+	// str[19] = b64t[(hash[3] >> 8) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[3], 8), MM_SET1(63)));
+	_B64TL(19);
+
+	// str[20] = b64t[(hash[3] >> 2) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[3], 2), MM_SET1(63)));
+	_B64TL(20);
+
+	// str[21] = b64t[(hash[3] << 4 | hash[4] >> 28) & 63];
+	MM_STORE(tmp, MM_AND(MM_OR(MM_SLLI(m_state[3], 4), MM_SRLI(m_state[4], 28)), MM_SET1(63)));
+	_B64TL(21);
+
+	// str[22] = b64t[(hash[4] >> 22) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[4], 22), MM_SET1(63)));
+	_B64TL(22);
+
+	// str[23] = b64t[(hash[4] >> 16) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[4], 16), MM_SET1(63)));
+	_B64TL(23);
+
+	// str[24] = b64t[(hash[4] >> 10) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[4], 10), MM_SET1(63)));
+	_B64TL(24);
+
+	// str[25] = b64t[(hash[4] >> 4) & 63];
+	MM_STORE(tmp, MM_AND(MM_SRLI(m_state[4], 4), MM_SET1(63)));
+	_B64TL(25);
+
+#undef _B64TL
+
+	for (i = 0; i < 8; i++){
+		memcpy(str + 26 + 48 * i, str + 48 * i, 11);
+	}
+}
+
+#endif	// USE_SHA1_AVX2	//////////////////////////////////////////////////
 
 
 #ifdef __MINGW32__
@@ -2043,6 +2653,95 @@ static inline int scanhash_sha1coin_sse2(int thr_id, uint32_t *pdata,
 #endif	// USE_SHA1_SSE2
 
 
+#ifdef USE_SHA1_AVX2
+static inline int scanhash_sha1coin_avx2(int thr_id, uint32_t *pdata,
+	const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done)
+{
+	const uint32_t first_nonce = pdata[19];
+	uint32_t n = first_nonce - 1;
+
+	uint32_t data[8 * 4] __attribute__((aligned(32)));
+
+	char str[8 * 48] __attribute__((aligned(32))) = {0};	// (26 + 11 + 1 + padding) * 8
+	char tripkey[8 * 4 * 3] __attribute__((aligned(32)));
+
+	uint32_t prehash[5] __attribute__((aligned(32)));
+	uint32_t hash[8] __attribute__((aligned(32))) = {0};
+	__m256i hash_m256i[5] __attribute__((aligned(32)));
+	int i, j, k;
+	__attribute__((aligned(32))) uint32_t tmp0[8], tmp1[8], tmp2[8], tmp3[8], tmp4[8];
+
+	// process 1st block of SHA-1, 512bits, 64bytes
+	sha1hash80byte_1st(pdata, prehash);
+
+	// setup data for 2nd block of SHA-1, 16bytes
+	memcpy(data, pdata + 16, 16);
+	for (i = 3; i >= 0; i--){
+		for (j = 0; j < 8; j++){
+			data[8 * i + j] = data[i];
+		}
+	}
+
+	do {
+		for (i = 0; i < 8; i++){
+			data[8 * 3 + i] = ++n;
+		}
+
+		// process 2nd block of SHA-1, 16bytes, generate str
+		sha1hash80byte_2nd_avx2(data, prehash, str);
+
+		for (i = 0; i < 5; i++){
+			hash_m256i[i] = _mm256_set1_epi32(0);
+		}
+
+		for (k = 0; k < 26; k++){
+			// generate tripkey table from str
+			for (i = 0; i < 8; i++){
+				for (j = 0; j < 3; j++){
+					tripkey[3 + 4 * i + 32 * j] = str[k + 0 + 48 * i + 4 * j];
+					tripkey[2 + 4 * i + 32 * j] = str[k + 1 + 48 * i + 4 * j];
+					tripkey[1 + 4 * i + 32 * j] = str[k + 2 + 48 * i + 4 * j];
+					tripkey[0 + 4 * i + 32 * j] = str[k + 3 + 48 * i + 4 * j];
+				}
+			}
+
+			// compute hash and search trip
+			sha1hash12byte_avx2(tripkey, hash_m256i);
+		}
+
+		_mm256_store_si256((__m256i *)tmp4, hash_m256i[4]);
+
+		for (i = 0; i < 8; i++){
+			hash[7] = swab32(tmp4[i]);
+
+			if (hash[7] <= ptarget[7]){
+				_mm256_store_si256((__m256i *)tmp0, hash_m256i[0]);
+				_mm256_store_si256((__m256i *)tmp1, hash_m256i[1]);
+				_mm256_store_si256((__m256i *)tmp2, hash_m256i[2]);
+				_mm256_store_si256((__m256i *)tmp3, hash_m256i[3]);
+
+				hash[3] = swab32(tmp0[i]);
+				hash[4] = swab32(tmp1[i]);
+				hash[5] = swab32(tmp2[i]);
+				hash[6] = swab32(tmp3[i]);
+
+				if (fulltest(hash, ptarget)){
+					pdata[19] = data[8 * 3 + i];
+					*hashes_done = n - first_nonce + 1;
+					return 1;
+				}
+			}
+		}
+	} while (n < max_nonce && !work_restart[thr_id].restart);
+
+	*hashes_done = n - first_nonce + 1;
+	pdata[19] = n;
+	return 0;
+}
+
+#endif	// USE_SHA1_AVX2
+
+
 int scanhash_sha1coin(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
     uint32_t max_nonce, unsigned long *hashes_done)
 {
@@ -2052,6 +2751,10 @@ int scanhash_sha1coin(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
   uint32_t hash[8] __attribute__((aligned(32)));
 #if defined(CHEAT)
   uint32_t hash7;
+#endif
+
+#ifdef USE_SHA1_AVX2
+	return scanhash_sha1coin_avx2(thr_id, pdata, ptarget, max_nonce, hashes_done);
 #endif
 
 #ifdef USE_SHA1_SSE2
