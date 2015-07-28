@@ -12,6 +12,10 @@
 #include <emmintrin.h>
 #endif
 
+#ifdef __XOP__
+#include <x86intrin.h>
+#endif
+
 #ifdef USE_SHA1_AVX2
 #include <immintrin.h>
 #endif
@@ -30,17 +34,19 @@
 #define H4 0xC3D2E1F0
 
 #define ROL32(_val32, _nBits) (((_val32)<<(_nBits))|((_val32)>>(32-(_nBits))))
+#define Ch(x,y,z) ((x&(y^z))^z)
+#define Maj(x,y,z) (((x|y)&z)|(x&y))
 
 // W[t] = ROL32(W[t-3] ^ W[t-8] ^ W[t-14] ^ W[t-16], 1);
 #define SHABLK(t) (W[t&15] = ROL32(W[(t+13)&15] ^ W[(t+8)&15] ^ W[(t+2)&15] ^ W[t&15], 1))
 
-#define _RS0(v,w,x,y,z,i) { z += ((w&(x^y))^y) + i + K0 + ROL32(v,5);  w=ROL32(w,30); }
-#define _RS00(v,w,x,y,z)  { z += ((w&(x^y))^y) + K0 + ROL32(v,5);  w=ROL32(w,30); }
+#define _RS0(v,w,x,y,z,i) { z += Ch(w,x,y) + i + K0 + ROL32(v,5);  w=ROL32(w,30); }
+#define _RS00(v,w,x,y,z)  { z += Ch(w,x,y) + K0 + ROL32(v,5);  w=ROL32(w,30); }
 #define _RS1(v,w,x,y,z,i) { z += (w^x^y) + i + K1 + ROL32(v,5);  w=ROL32(w,30); }
 
-#define _R0(v,w,x,y,z,t) { z += ((w&(x^y))^y) + SHABLK(t) + K0 + ROL32(v,5);  w=ROL32(w,30); }
+#define _R0(v,w,x,y,z,t) { z += Ch(w,x,y) + SHABLK(t) + K0 + ROL32(v,5);  w=ROL32(w,30); }
 #define _R1(v,w,x,y,z,t) { z += (w^x^y) + SHABLK(t) + K1 + ROL32(v,5);  w=ROL32(w,30); }
-#define _R2(v,w,x,y,z,t) { z += (((w|x)&y)|(w&x)) + SHABLK(t) + K2 + ROL32(v,5);  w=ROL32(w,30); }
+#define _R2(v,w,x,y,z,t) { z += Maj(w,x,y) + SHABLK(t) + K2 + ROL32(v,5);  w=ROL32(w,30); }
 #define _R3(v,w,x,y,z,t) { z += (w^x^y) + SHABLK(t) + K3 + ROL32(v,5);  w=ROL32(w,30); }
 
 
@@ -1063,20 +1069,31 @@ void sha1hash12byte_opt(const char *input, uint32_t *hash)
 #define MM_STORE(a, b) _mm_store_si128((__m128i *)(a), (b))
 
 #undef ROL32
+#undef Ch
+#undef Maj
+
+#ifdef __XOP__
+#define ROL32(_val32, _nBits) _mm_roti_epi32((_val32), (_nBits))
+#define Ch(x,y,z) _mm_cmov_si128((y),(z),(x))
+#define Maj(x,y,z) Ch(MM_XOR((x),(z)),(y),(z))
+#else
 #define ROL32(_val32, _nBits) (MM_OR(MM_SLLI((_val32), (_nBits)), MM_SRLI((_val32), 32-(_nBits))))
+#define Ch(x,y,z) (MM_XOR(MM_AND((x), MM_XOR((y), (z))), (z)))
+#define Maj(x,y,z) (MM_OR(MM_AND(MM_OR((x), (y)), (z)), MM_AND((x), (y))))
+#endif
 
 #undef SHABLK
 #define SHABLK(t) (W[(t)&15] = ROL32(MM_XOR(MM_XOR(MM_XOR(W[((t)+13)&15], W[((t)+8)&15]), W[((t)+2)&15]), W[(t)&15]), 1))
 
 #undef _RS0
 #define _RS0(v,w,x,y,z,i) { \
-	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_AND((w), MM_XOR((x), (y))), (y)), (i)), MM_SET1(K0)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(Ch(w,x,y), (i)), MM_SET1(K0)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
 #undef _RS00
 #define _RS00(v,w,x,y,z) { \
-	z = MM_ADD((z), MM_ADD(MM_ADD(MM_XOR(MM_AND((w), MM_XOR((x), (y))), (y)), MM_SET1(K0)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(Ch(w,x,y), MM_SET1(K0)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
@@ -1088,7 +1105,7 @@ void sha1hash12byte_opt(const char *input, uint32_t *hash)
 
 #undef _R0
 #define _R0(v,w,x,y,z,t) { \
-	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_XOR(MM_AND((w), MM_XOR((x), (y))), (y)), SHABLK(t)), MM_SET1(K0)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(Ch(w,x,y), SHABLK(t)), MM_SET1(K0)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
@@ -1100,7 +1117,7 @@ void sha1hash12byte_opt(const char *input, uint32_t *hash)
 
 #undef _R2
 #define _R2(v,w,x,y,z,t) { \
-	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(MM_OR(MM_AND(MM_OR((w), (x)), (y)), MM_AND((w), (x))), SHABLK(t)), MM_SET1(K2)), ROL32(v,5))); \
+	z = MM_ADD((z), MM_ADD(MM_ADD(MM_ADD(Maj(w,x,y), SHABLK(t)), MM_SET1(K2)), ROL32(v,5))); \
 	w = ROL32(w, 30); \
 }
 
