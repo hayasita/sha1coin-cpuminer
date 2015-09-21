@@ -160,6 +160,10 @@ extern void quarkhash(void *state, const void *input);
 	
 #define USE_SHA1_OPT 1
 
+#ifdef __ARM_NEON__
+#define USE_SHA1_NEON 1
+#endif
+
 #ifdef __SSE2__
 #define USE_SHA1_SSE2 1
 #endif
