@@ -24,6 +24,39 @@
 #include <immintrin.h>
 #endif
 
+#ifdef USE_SHA1_PIQPU
+#include "/opt/vc/src/hello_pi/hello_fft/mailbox.h"
+
+#define GPU_MEM_FLG     0xC
+#define GPU_MEM_MAP     0x0
+#define MAX_CODE_SIZE   8192
+#define VPM_SIZE		256
+#define QPUTHR			16
+#define NUM_QPUS        12
+#define UNIFORMS		13
+struct memory_map {
+    unsigned int code[MAX_CODE_SIZE];
+    unsigned int uniforms[NUM_QPUS][UNIFORMS];		// 13 parameters per QPU
+    unsigned int msg[NUM_QPUS][2];
+	unsigned int input[NUM_QPUS][VPM_SIZE];			// input buffer for the QPU
+    unsigned int results[NUM_QPUS][VPM_SIZE];		// result buffer for the QPU
+};
+
+unsigned size;
+unsigned handle;
+void *arm_ptr;
+int mb;
+struct memory_map *arm_map;
+unsigned vc_msg;
+
+unsigned int qpu_code[] = {
+#include "sha1_raspiqpu.hex"
+};
+
+int qpu_ini();
+void qpu_end();
+#endif
+
 
 // constants and initial values defined in SHA-1
 #define K0 0x5A827999
@@ -3118,6 +3151,88 @@ uint32_t sha1coinhash(void *state, const void *input)
 }
 
 
+#ifdef USE_SHA1_PIQPU
+static inline int scanhash_sha1coin_qpu(int thr_id, uint32_t *pdata,
+	const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done)
+{
+	const uint32_t first_nonce = pdata[19];
+	uint32_t n = first_nonce - 1;
+	uint32_t ntmp;
+
+	uint32_t data[4] __attribute__((aligned(32)));
+
+	char str[38] __attribute__((aligned(32))) = {0};	// 26 + 11 + 1
+	char tripkey[38] __attribute__((aligned(32))) = {0};
+
+	uint32_t prehash[5] __attribute__((aligned(32)));
+	uint32_t hash[8] __attribute__((aligned(32)));
+	uint32_t m_state[5] __attribute__((aligned(32)));
+	
+	int i, j, k, l;
+	int tes;
+    unsigned int strw[10];
+    unsigned int wtmp[NUM_QPUS][16][10];
+    char strtest[38] __attribute__((aligned(32))); // 26 + 11 + 1
+
+	// process 1st block of SHA-1, 512bits, 64bytes
+	sha1hash80byte_1st(pdata, prehash);
+
+	// setup data for 2nd block of SHA-1, 16bytes
+	memcpy(data, pdata + 16, 16);
+
+	qpu_ini();
+
+	do {
+		ntmp=n;
+		data[3] = ++ntmp;
+
+		// QPU Data Set
+    	for (i=0; i < NUM_QPUS; i++) {
+    	    arm_map->uniforms[i][4] = prehash[0];
+    	    arm_map->uniforms[i][5] = prehash[1];
+    	    arm_map->uniforms[i][6] = prehash[2];
+    	    arm_map->uniforms[i][7] = prehash[3];
+    	    arm_map->uniforms[i][8] = prehash[4];
+    	    arm_map->uniforms[i][9] = data[0];
+    	    arm_map->uniforms[i][10] = data[1];
+    	    arm_map->uniforms[i][11] = data[2];
+    	    arm_map->uniforms[i][12] = data[3];
+    	}
+
+    	unsigned ret = execute_qpu(mb, NUM_QPUS, vc_msg, 1, 10000);
+
+		// QPU Outputdata Read & Check
+		for(i=0 ; i<NUM_QPUS ; i++){
+			for(l=0; l<QPUTHR; l++){
+				// hash check
+				if (arm_map->results[i][64+l] <= ptarget[7]){
+					memset(hash, 0, 12);
+					for(j=0; j<4; j++){
+						hash[j+3] = swab32(arm_map->results[i][(j*16)+l]);
+					}
+					hash[7] = arm_map->results[i][(64)+l];
+					data[3] = ntmp + (i * QPUTHR) + l;
+					if (fulltest(hash, ptarget)){
+						pdata[19] = data[3];
+						*hashes_done = n - first_nonce + 1;
+						qpu_end();
+						return 1;
+					}
+				}
+			}
+		}
+		n += NUM_QPUS * QPUTHR;
+	} while (n < max_nonce && !work_restart[thr_id].restart);
+	
+	*hashes_done = n - first_nonce + 1;
+	pdata[19] = n;
+	qpu_end();
+
+	return 0;
+}
+
+#endif
+
 #ifdef USE_SHA1_OPT
 static inline int scanhash_sha1coin_opt(int thr_id, uint32_t *pdata,
 	const uint32_t *ptarget, uint32_t max_nonce, unsigned long *hashes_done)
@@ -3469,6 +3584,10 @@ int scanhash_sha1coin(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 	return scanhash_sha1coin_neon(thr_id, pdata, ptarget, max_nonce, hashes_done);
 #endif
 
+#ifdef USE_SHA1_PIQPU
+	return scanhash_sha1coin_qpu(thr_id, pdata, ptarget, max_nonce, hashes_done);
+#endif
+
 #ifdef USE_SHA1_OPT
 	return scanhash_sha1coin_opt(thr_id, pdata, ptarget, max_nonce, hashes_done);
 #endif
@@ -3503,3 +3622,67 @@ int scanhash_sha1coin(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
   pdata[19] = n;
   return 0;
 }
+
+
+#ifdef USE_SHA1_PIQPU
+int qpu_ini(){
+	unsigned vc_uniforms;
+	unsigned vc_code;
+	unsigned vc_input;
+	unsigned vc_results;
+	unsigned ptr;
+
+	const char w64t[] = {
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+		'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+		'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+		'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'
+	};
+
+    mb = mbox_open();
+    if (qpu_enable(mb, 1)){
+        fprintf(stderr, "QPU enable failed.\n");
+        return -1;
+    }
+    
+    size = 1024 * 1024;
+    handle = mem_alloc(mb, size, 4096, GPU_MEM_FLG);
+    if (!handle){
+        fprintf(stderr, "Unable to allocate %d bytes of GPU memory", size);
+        return -2;
+    }
+    
+    ptr = mem_lock(mb, handle);									// GPUに渡すmemoryのpointer
+    arm_ptr = mapmem(ptr + GPU_MEM_MAP, size);
+
+    arm_map = (struct memory_map *)arm_ptr;
+    memset(arm_map, 0x0, sizeof(struct memory_map));
+    vc_input = ptr + offsetof(struct memory_map, input);
+    vc_results = ptr + offsetof(struct memory_map, results);
+    vc_uniforms = ptr + offsetof(struct memory_map, uniforms);	
+    vc_code = ptr + offsetof(struct memory_map, code);
+    vc_msg = ptr + offsetof(struct memory_map, msg);
+    memcpy(arm_map->code, qpu_code, sizeof(qpu_code));
+
+    for (int i=0; i < NUM_QPUS; i++){
+        arm_map->uniforms[i][0] = vc_input + i * sizeof(unsigned) * VPM_SIZE;
+        arm_map->uniforms[i][1] = vc_results + i * sizeof(unsigned) * VPM_SIZE;
+        arm_map->uniforms[i][2] = i;
+        arm_map->uniforms[i][3] = NUM_QPUS;
+        arm_map->msg[i][0] = vc_uniforms + i * sizeof(unsigned) * UNIFORMS;
+        arm_map->msg[i][1] = vc_code;
+		for (int j=0; j < 64; j++){
+			arm_map->input[i][j] = (unsigned int)w64t[j];
+		}
+    }
+}
+
+void qpu_end()
+{
+	unmapmem(arm_ptr, size);
+	mem_unlock(mb, handle);
+	mem_free(mb, handle);
+	qpu_enable(mb, 0);
+}
+
+#endif
