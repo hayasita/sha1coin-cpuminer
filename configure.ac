@@ -99,9 +99,6 @@ AC_CHECK_LIB([pthread], [pthread_create], PTHREAD_LIBS="-lpthread",
       AC_CHECK_LIB([pthreadGC], [pthread_create], PTHREAD_LIBS="-lpthreadGC"
 ))))
 
-QPUMAILBOX_FILE="/opt/vc/src/hello_pi/hello_fft/mailbox.c"
-AM_CONDITIONAL([USE_PIQPU], [test -f ${QPUMAILBOX_FILE}])
-
 AM_CONDITIONAL([WANT_JANSSON], [test x$request_jansson = xtrue])
 AM_CONDITIONAL([HAVE_WINDOWS], [test x$have_win32 = xtrue])
 AM_CONDITIONAL([ARCH_x86], [test x$have_x86 = xtrue])
