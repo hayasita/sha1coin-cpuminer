@@ -54,7 +54,7 @@ Architecture-specific notes:
 		in the sha1coin algorithm.
 		The decision whether to use them is made at compile time,
 		based on compiler-defined macros.
-		To use GPU, add "-DUSE_SHA1_PIQPU" to CFLAGS.
+		To use GPU, ./configure add --enable-raspiqpu option.
 		Root authority is required for execution.(Use "sudo")
 		Crash using the -t option.
 		Confirmed the operation with Raspberry Pi Zero and Jessie.
