@@ -64,6 +64,18 @@ case $target in
     ;;
 esac
 
+AC_ARG_ENABLE([raspiqpu],
+	[AS_HELP_STRING([--enable-raspiqpu],
+	    [raspiqpu feature (default is no)])],
+	[],
+	[enable_raspiqpu=no] 
+)
+
+AS_IF([test "x$enable_raspiqpu" != xno],
+    [AC_DEFINE([USE_SHA1_PIQPU], [1], [raspiqpu support])
+	have_raspiqpu=true]
+)
+
 if test x$have_x86 = xtrue
 then
   AC_MSG_CHECKING(whether we can compile AVX code)
@@ -103,9 +115,9 @@ AM_CONDITIONAL([WANT_JANSSON], [test x$request_jansson = xtrue])
 AM_CONDITIONAL([HAVE_WINDOWS], [test x$have_win32 = xtrue])
 AM_CONDITIONAL([ARCH_x86], [test x$have_x86 = xtrue])
 AM_CONDITIONAL([ARCH_x86_64], [test x$have_x86_64 = xtrue])
+AM_CONDITIONAL([ARCH_RASPIQPU], [test x$have_raspiqpu = xtrue])
 
-if test x$request_jansson = xtrue
-then
+if test x$request_jansson = xtrue ; then
 	JANSSON_LIBS="compat/jansson/libjansson.a"
 else
 	JANSSON_LIBS=-ljansson
